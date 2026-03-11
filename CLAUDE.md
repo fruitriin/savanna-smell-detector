@@ -31,7 +31,12 @@ src/
 │   ├── smell.rs         # SmellType, TestSmell, TestFunction, TestFile
 │   ├── detector.rs      # SmellDetector trait
 │   └── registry.rs      # SmellDetectorRegistry (enable/disable)
-├── detectors/           # スメル検出器（ここに追加していく）
+├── agent/               # LLM Agent 検出器（Phase 2）
+│   ├── types.rs         # AgentRule, AgentInput, AgentOutput, AgentTestSmell
+│   ├── rule_loader.rs   # Markdown ルールファイルのパース
+│   ├── prefilter.rs     # AST情報による候補絞り込み
+│   └── runner.rs        # LLM サブプロセス呼び出し
+├── detectors/           # AST スメル検出器（Phase 1）
 │   ├── empty_test.rs
 │   ├── missing_assertion.rs
 │   ├── sleepy_test.rs
@@ -43,6 +48,9 @@ src/
 └── reporters/           # 出力形式
     ├── console.rs       # 色付きコンソール + 🦁
     └── json.rs          # CI/LLM連携用 JSON
+rules/                   # デフォルト同梱ルール
+├── t_wada.md            # t_wada ペルソナによる総合レビュー
+└── eager-test.md        # Eager Test 特化検出
 ```
 
 ## 設計原則
@@ -51,6 +59,43 @@ src/
 - **検出器の独立性**: 各 `SmellDetector` は独立して動作し、`TestFile`（言語非依存の中間表現）を受け取る
 - **CI ファースト**: JSON 出力 + `--fail-on-smell` で CI パイプラインに組み込める
 - **LLM フレンドリー**: 構造化された JSON 出力を LLM が読んで自動修正できることを想定
+- **ハイブリッド検出**: AST（Phase 1）で構文的スメルを検出し、LLM Agent（Phase 2）で意味的スメルを判定
+
+## Agent 検出器（LLM ベース）
+
+AST だけでは判断できない意味的なスメル（Eager Test、テスト名の品質等）を、LLM に委譲して検出する。
+
+```bash
+# Agent 検出器を有効にして実行
+cargo run -- . --agent-rules ./rules/
+
+# 信頼度閾値を指定
+cargo run -- . --agent-rules ./rules/ --agent-confidence 0.8
+
+# LLM コマンドを変更（デフォルト: "claude -p"）
+cargo run -- . --agent-rules ./rules/ --llm-command "ollama run llama3"
+
+# Agent を無効化（AST only）
+cargo run -- . --agent-rules ./rules/ --no-agent
+```
+
+### カスタムルールの追加
+
+`rules/` に markdown ファイルを追加する。YAML フロントマター + プロンプト本文。
+
+```markdown
+---
+name: "my-rule"
+description: "カスタム検出ルールの説明"
+severity: 3
+prefilter:
+  min_assertions: 2
+llm_command: "claude -p"   # 省略時はCLIのデフォルト
+---
+
+プロンプト本文。{{input}} にテスト関数の JSON が埋め込まれる。
+LLM は {"is_smell": bool, "confidence": float, "reason": str, "suggestion": str?} を返す。
+```
 
 ## 新しいスメルの追加手順
 
