@@ -28,6 +28,10 @@ struct Cli {
     /// Fail with non-zero exit code if smells are found
     #[arg(long, default_value_t = false)]
     fail_on_smell: bool,
+
+    /// Minimum severity level to report (1-5, default: 1)
+    #[arg(long, default_value_t = 1)]
+    min_severity: u8,
 }
 
 fn main() {
@@ -67,12 +71,21 @@ fn main() {
     let registry = detectors::default_registry();
     let smells = registry.detect_all(&test_files);
 
+    // フィルタリング
+    let smells: Vec<_> = smells
+        .into_iter()
+        .filter(|s| s.smell_type.severity() >= cli.min_severity)
+        .collect();
+
     // レポート
     let reporter: Box<dyn SmellReporter> = match cli.format.as_str() {
         "json" => Box::new(JsonReporter),
         _ => Box::new(ConsoleReporter),
     };
 
+    if cli.min_severity > 1 {
+        println!("  (showing severity >= {} only)", cli.min_severity);
+    }
     println!("{}", reporter.report(&smells));
 
     if cli.fail_on_smell && !smells.is_empty() {
