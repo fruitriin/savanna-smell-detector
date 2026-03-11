@@ -51,7 +51,26 @@ mod tests {
         assert_eq!(result, 4);
     }
 
-    // 7. 良いテスト — 臭いなし
+    // 7. Assertion Roulette — メッセージなしの複数アサーション
+    #[test]
+    fn test_assertion_roulette() {
+        let x = 42;
+        assert!(x > 0);
+        assert_eq!(x, 42);
+        assert_ne!(x, 0);
+    }
+
+    // 8. Magic Number Test — マジックナンバー
+    #[test]
+    fn test_magic_number() {
+        let result = compute();
+        assert_eq!(result, 86400);
+        assert_eq!(result % 3600, 0);
+    }
+
+    fn compute() -> i64 { 86400 }
+
+    // 9. 良いテスト — 臭いなし
     #[test]
     fn test_clean() {
         let result = 2 + 2;

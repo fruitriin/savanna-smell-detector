@@ -1,6 +1,7 @@
 use crate::core::{TestFile, TestFunction};
 use super::LanguageParser;
 use syn::{visit::Visit, Attribute, Expr, ExprCall, ExprMacro, ExprPath, ItemFn, ItemMod, Stmt};
+use proc_macro2::TokenTree;
 
 pub struct RustParser;
 
@@ -82,7 +83,7 @@ impl<'a> RustTestVisitor<'a> {
             has_print: analyzer.has_print,
             is_empty,
             assertion_count: analyzer.assertion_count,
-            magic_numbers: Vec::new(), // TODO: Phase 2
+            magic_numbers: analyzer.magic_numbers,
         }
     }
 
@@ -141,6 +142,7 @@ struct BodyAnalyzer {
     has_conditional: bool,
     has_print: bool,
     assertion_count: usize,
+    magic_numbers: Vec<(i64, usize)>,
 }
 
 impl BodyAnalyzer {
@@ -221,6 +223,25 @@ impl BodyAnalyzer {
         }
     }
 
+    fn extract_magic_numbers_from_macro(&mut self, mac: &syn::Macro) {
+        let path_str = macro_path_string(&mac.path);
+        if !matches!(path_str.as_str(), "assert_eq" | "assert_ne" | "assert") {
+            return;
+        }
+        // トークンストリームから数値リテラルを抽出
+        for token in mac.tokens.clone() {
+            if let TokenTree::Literal(lit) = token {
+                let s = lit.to_string();
+                if let Ok(n) = s.parse::<i64>() {
+                    // 小さい数値（-10..=10）は一般的な境界値・定数なので除外
+                    if !(-10..=10).contains(&n) {
+                        self.magic_numbers.push((n, 0));
+                    }
+                }
+            }
+        }
+    }
+
     fn check_macro_path(&mut self, mac: &syn::Macro) {
         let path_str = macro_path_string(&mac.path);
         // Assertion macros
@@ -240,6 +261,8 @@ impl BodyAnalyzer {
         ) {
             self.has_print = true;
         }
+        // Magic number extraction
+        self.extract_magic_numbers_from_macro(mac);
     }
 
     fn check_fn_call(&mut self, path: &syn::Path) {
