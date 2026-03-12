@@ -1,8 +1,10 @@
 mod console;
 mod json;
+mod markdown;
 
 pub use console::ConsoleReporter;
 pub use json::JsonReporter;
+pub use markdown::MarkdownReporter;
 
 use crate::core::TestSmell;
 

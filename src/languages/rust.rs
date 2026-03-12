@@ -90,6 +90,7 @@ impl<'a> RustTestVisitor<'a> {
             assert_only_count: analyzer.assert_only_count,
             magic_numbers: analyzer.magic_numbers,
             has_early_return: analyzer.has_early_return,
+            has_timeout_dependency: analyzer.has_timeout_dependency,
         }
     }
 
@@ -152,6 +153,8 @@ struct BodyAnalyzer {
     assert_only_count: usize,
     magic_numbers: Vec<(i64, usize)>,
     has_early_return: bool,
+    /// Duration::from_secs/from_millis, Instant::now(), SystemTime::now() などの時間API使用（sleep以外）
+    has_timeout_dependency: bool,
 }
 
 impl BodyAnalyzer {
@@ -293,11 +296,27 @@ impl BodyAnalyzer {
     }
 
     fn check_fn_call(&mut self, path: &syn::Path) {
-        let last = path.segments.last().map(|s| s.ident.to_string());
+        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let last = segments.last().map(|s| s.as_str());
+        let full = segments.join("::");
+
         if let Some(name) = last {
             if name == "sleep" {
                 self.has_sleep = true;
             }
+        }
+
+        // 時間API検出: Duration::from_secs, Duration::from_millis, Instant::now, SystemTime::now
+        let timeout_fns = [
+            "Duration::from_secs",
+            "Duration::from_millis",
+            "Duration::from_micros",
+            "Duration::from_nanos",
+            "Instant::now",
+            "SystemTime::now",
+        ];
+        if timeout_fns.iter().any(|&f| full.ends_with(f)) {
+            self.has_timeout_dependency = true;
         }
     }
 }

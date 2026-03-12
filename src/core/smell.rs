@@ -27,6 +27,8 @@ pub enum SmellType {
     NoTest,
     /// テスト関数の先頭付近に条件付き early return がある
     SilentSkip,
+    /// タイムアウト依存の成功判定（Duration/Instant/SystemTime の使用）
+    FragileTest,
 }
 
 impl SmellType {
@@ -55,6 +57,8 @@ impl SmellType {
                 "テストがありませんね。t_wada の前でも同じこと言えんの？",
             SmellType::SilentSkip =>
                 "テストが通ったんじゃない、テストが実行されなかっただけだ。条件付きスキップは #[ignore] を使いましょう。",
+            SmellType::FragileTest =>
+                "固定タイムアウトに頼るテストは、CI の負荷が高い日に裏切ります。時間ではなくイベントを待ちましょう。",
         }
     }
 
@@ -72,6 +76,7 @@ impl SmellType {
             SmellType::MagicNumberTest => 2,
             SmellType::NoTest => 5,
             SmellType::SilentSkip => 4,
+            SmellType::FragileTest => 3,
         }
     }
 }
@@ -90,6 +95,7 @@ impl fmt::Display for SmellType {
             SmellType::MagicNumberTest => "Magic Number Test",
             SmellType::NoTest => "No Test",
             SmellType::SilentSkip => "Silent Skip",
+            SmellType::FragileTest => "Fragile Test",
         };
         write!(f, "{}", s)
     }
@@ -140,6 +146,8 @@ pub struct TestFunction {
     pub magic_numbers: Vec<(i64, usize)>, // (value, line)
     /// テスト関数の先頭付近（最初の3文）に条件付き early return があるか
     pub has_early_return: bool,
+    /// Duration::from_secs/from_millis, Instant::now(), SystemTime::now() などの時間API使用（sleep以外）
+    pub has_timeout_dependency: bool,
 }
 
 /// ファイル単位の解析結果（言語非依存）

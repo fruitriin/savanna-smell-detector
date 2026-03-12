@@ -8,6 +8,7 @@ mod assertion_roulette;
 mod magic_number;
 mod no_test;
 mod silent_skip;
+mod fragile_test;
 
 pub use empty_test::EmptyTestDetector;
 pub use missing_assertion::MissingAssertionDetector;
@@ -19,6 +20,7 @@ pub use assertion_roulette::AssertionRouletteDetector;
 pub use magic_number::MagicNumberTestDetector;
 pub use no_test::NoTestDetector;
 pub use silent_skip::SilentSkipDetector;
+pub use fragile_test::FragileTestDetector;
 
 use crate::core::SmellDetectorRegistry;
 
@@ -40,4 +42,5 @@ pub fn build_registry(magic_number_extra_whitelist: Vec<i64>) -> SmellDetectorRe
         .register(MagicNumberTestDetector::new().with_whitelist(magic_number_extra_whitelist))
         .register(SilentSkipDetector)
         .register(NoTestDetector)
+        .register(FragileTestDetector)
 }

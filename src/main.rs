@@ -7,9 +7,10 @@ mod reporters;
 use agent::{AgentTestSmell, load_rules, run_agent_detection};
 use clap::Parser;
 use languages::{LanguageParser, RustParser};
-use reporters::{ConsoleReporter, SmellReporter};
+use reporters::{ConsoleReporter, MarkdownReporter, SmellReporter};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::io::Write as IoWrite;
 
 #[derive(Parser)]
 #[command(name = "savanna-smell-detector")]
@@ -55,6 +56,14 @@ struct Cli {
     /// Additional magic number whitelist (comma-separated, e.g. "80,24,256")
     #[arg(long, value_delimiter = ',')]
     magic_number_whitelist: Vec<i64>,
+
+    /// Write report to file (extension determines format: .json → JSON, others → Markdown)
+    #[arg(long)]
+    output: Option<PathBuf>,
+
+    /// Also print to stdout when --output is specified (tee mode)
+    #[arg(long, default_value_t = false)]
+    tee: bool,
 }
 
 /// 統合出力用のアイテム型
@@ -139,24 +148,67 @@ fn main() {
         println!("  (showing severity >= {} only)", cli.min_severity);
     }
 
-    match cli.format.as_str() {
-        "json" => {
-            // 統合JSON出力
+    // --output が指定されているかで出力先を決める
+    if let Some(ref output_path) = cli.output {
+        let ext = output_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+
+        let content = if ext == "json" {
+            // JSON出力
             let items: Vec<ReportItem> = smells
                 .iter()
                 .map(ReportItem::Ast)
                 .chain(agent_smells.iter().map(ReportItem::Agent))
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&items)
-                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e)));
-        }
-        _ => {
-            // コンソール出力: Phase 1 → Phase 2
-            let reporter: Box<dyn SmellReporter> = Box::new(ConsoleReporter);
-            println!("{}", reporter.report(&smells));
+            serde_json::to_string_pretty(&items)
+                .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
+        } else {
+            // Markdown出力
+            let target = cli.path.display().to_string();
+            let reporter = MarkdownReporter::new(target)
+                .with_agent_smells(agent_smells.clone());
+            reporter.report_all(&smells)
+        };
 
-            if !agent_smells.is_empty() {
-                print_agent_smells_console(&agent_smells);
+        // ファイルに書き出す
+        match std::fs::File::create(output_path) {
+            Ok(mut f) => {
+                if let Err(e) = f.write_all(content.as_bytes()) {
+                    eprintln!("Failed to write output file: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to create output file {:?}: {}", output_path, e);
+            }
+        }
+
+        // --tee なら stdout にも出力
+        if cli.tee {
+            println!("{}", content);
+        }
+    } else {
+        // 通常の stdout 出力
+        match cli.format.as_str() {
+            "json" => {
+                // 統合JSON出力
+                let items: Vec<ReportItem> = smells
+                    .iter()
+                    .map(ReportItem::Ast)
+                    .chain(agent_smells.iter().map(ReportItem::Agent))
+                    .collect();
+                println!("{}", serde_json::to_string_pretty(&items)
+                    .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e)));
+            }
+            _ => {
+                // コンソール出力: Phase 1 → Phase 2
+                let reporter: Box<dyn SmellReporter> = Box::new(ConsoleReporter);
+                println!("{}", reporter.report(&smells));
+
+                if !agent_smells.is_empty() {
+                    print_agent_smells_console(&agent_smells);
+                }
             }
         }
     }
