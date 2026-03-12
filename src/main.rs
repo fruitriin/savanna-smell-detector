@@ -51,6 +51,10 @@ struct Cli {
     /// Skip agent rules (run AST-only detection)
     #[arg(long, default_value_t = false)]
     no_agent: bool,
+
+    /// Additional magic number whitelist (comma-separated, e.g. "80,24,256")
+    #[arg(long, value_delimiter = ',')]
+    magic_number_whitelist: Vec<i64>,
 }
 
 /// 統合出力用のアイテム型
@@ -97,7 +101,7 @@ fn main() {
     }
 
     // Phase 1: AST検出
-    let registry = detectors::default_registry();
+    let registry = detectors::build_registry(cli.magic_number_whitelist.clone());
     let smells = registry.detect_all(&test_files);
 
     // フィルタリング

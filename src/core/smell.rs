@@ -17,12 +17,16 @@ pub enum SmellType {
     IgnoredTest,
     /// 不要な print/println/dbg! 文
     RedundantPrint,
-    /// メッセージなしの複数アサーション
+    /// メッセージなしの複数アサーション（assert_eq!/assert_ne! — 値が自動表示される）
     AssertionRoulette,
+    /// メッセージなしの複数アサーション（assert! のみ — 失敗理由が不明）
+    AssertionRouletteStrict,
     /// 説明のないマジックナンバー
     MagicNumberTest,
     /// テストがない
     NoTest,
+    /// テスト関数の先頭付近に条件付き early return がある
+    SilentSkip,
 }
 
 impl SmellType {
@@ -42,11 +46,15 @@ impl SmellType {
             SmellType::RedundantPrint =>
                 "print デバッグをテストに残すのは、作業中の足場を建物に残すようなものです。",
             SmellType::AssertionRoulette =>
-                "アサーションにメッセージがないと、失敗したとき何が期待と違ったのか分かりません。",
+                "assert_eq!/assert_ne! は失敗時に値を表示しますが、メッセージがあるとさらに意図が明確になります。",
+            SmellType::AssertionRouletteStrict =>
+                "assert! にメッセージがないと、失敗したとき何が期待と違ったのか全く分かりません。",
             SmellType::MagicNumberTest =>
                 "その数値は何を意味していますか？テストは仕様の表明です。意図を名前にしましょう。",
             SmellType::NoTest =>
                 "テストがありませんね。t_wada の前でも同じこと言えんの？",
+            SmellType::SilentSkip =>
+                "テストが通ったんじゃない、テストが実行されなかっただけだ。条件付きスキップは #[ignore] を使いましょう。",
         }
     }
 
@@ -59,9 +67,11 @@ impl SmellType {
             SmellType::ConditionalTestLogic => 3,
             SmellType::IgnoredTest => 2,
             SmellType::RedundantPrint => 1,
-            SmellType::AssertionRoulette => 2,
+            SmellType::AssertionRoulette => 1,
+            SmellType::AssertionRouletteStrict => 2,
             SmellType::MagicNumberTest => 2,
             SmellType::NoTest => 5,
+            SmellType::SilentSkip => 4,
         }
     }
 }
@@ -76,8 +86,10 @@ impl fmt::Display for SmellType {
             SmellType::IgnoredTest => "Ignored Test",
             SmellType::RedundantPrint => "Redundant Print",
             SmellType::AssertionRoulette => "Assertion Roulette",
+            SmellType::AssertionRouletteStrict => "Assertion Roulette (Strict)",
             SmellType::MagicNumberTest => "Magic Number Test",
             SmellType::NoTest => "No Test",
+            SmellType::SilentSkip => "Silent Skip",
         };
         write!(f, "{}", s)
     }
@@ -123,7 +135,11 @@ pub struct TestFunction {
     pub has_print: bool,
     pub is_empty: bool,
     pub assertion_count: usize,
+    /// assert! のみのカウント（assert_eq!/assert_ne! を除く）
+    pub assert_only_count: usize,
     pub magic_numbers: Vec<(i64, usize)>, // (value, line)
+    /// テスト関数の先頭付近（最初の3文）に条件付き early return があるか
+    pub has_early_return: bool,
 }
 
 /// ファイル単位の解析結果（言語非依存）

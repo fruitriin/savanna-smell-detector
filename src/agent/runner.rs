@@ -106,6 +106,8 @@ fn call_llm(command_str: &str, prompt: &str) -> Result<String, String> {
 
     let mut child = Command::new(cmd)
         .args(args)
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

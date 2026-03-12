@@ -68,6 +68,10 @@ impl<'a> RustTestVisitor<'a> {
         let is_empty = func.block.stmts.is_empty();
 
         let mut analyzer = BodyAnalyzer::default();
+        // 先頭3文のみ early return チェック（先頭付近の条件付きスキップパターンを検出）
+        for stmt in func.block.stmts.iter().take(3) {
+            analyzer.check_early_return(stmt);
+        }
         for stmt in &func.block.stmts {
             analyzer.visit_stmt(stmt);
         }
@@ -83,7 +87,9 @@ impl<'a> RustTestVisitor<'a> {
             has_print: analyzer.has_print,
             is_empty,
             assertion_count: analyzer.assertion_count,
+            assert_only_count: analyzer.assert_only_count,
             magic_numbers: analyzer.magic_numbers,
+            has_early_return: analyzer.has_early_return,
         }
     }
 
@@ -142,7 +148,10 @@ struct BodyAnalyzer {
     has_conditional: bool,
     has_print: bool,
     assertion_count: usize,
+    /// assert! のみのカウント（assert_eq!/assert_ne! を除く）
+    assert_only_count: usize,
     magic_numbers: Vec<(i64, usize)>,
+    has_early_return: bool,
 }
 
 impl BodyAnalyzer {
@@ -254,6 +263,10 @@ impl BodyAnalyzer {
             self.has_assertion = true;
             self.assertion_count += 1;
         }
+        // assert! のみのカウント（assert_eq!/assert_ne! を除く）
+        if matches!(path_str.as_str(), "assert" | "debug_assert") {
+            self.assert_only_count += 1;
+        }
         // Print macros
         if matches!(
             path_str.as_str(),
@@ -263,6 +276,20 @@ impl BodyAnalyzer {
         }
         // Magic number extraction
         self.extract_magic_numbers_from_macro(mac);
+    }
+
+    /// テスト先頭付近の条件付き early return を検出する
+    /// `if <cond> { return; }` または `if <cond> { return <expr>; }` パターン
+    fn check_early_return(&mut self, stmt: &Stmt) {
+        if let Stmt::Expr(Expr::If(expr_if), _) = stmt {
+            // then_branch に return があるか確認
+            let has_return = expr_if.then_branch.stmts.iter().any(|s| {
+                matches!(s, Stmt::Expr(Expr::Return(_), _))
+            });
+            if has_return {
+                self.has_early_return = true;
+            }
+        }
     }
 
     fn check_fn_call(&mut self, path: &syn::Path) {
