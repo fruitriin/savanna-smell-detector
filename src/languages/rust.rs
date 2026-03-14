@@ -23,6 +23,7 @@ impl LanguageParser for RustParser {
             path: path.to_string(),
             language: "rust".to_string(),
             test_functions: visitor.test_functions,
+            source: Some(source.to_string()),
         })
     }
 }
@@ -47,8 +48,13 @@ impl<'a> RustTestVisitor<'a> {
             || attr.path().segments.last().map_or(false, |s| s.ident == "test")
     }
 
-    fn is_ignore_attr(attr: &Attribute) -> bool {
-        attr.path().is_ident("ignore")
+    fn is_ignore_attr_without_reason(attr: &Attribute) -> bool {
+        if !attr.path().is_ident("ignore") {
+            return false;
+        }
+        // #[ignore = "理由"] や #[ignore("理由")] の場合は false（理由付き）
+        // #[ignore] のみ true（理由なし）
+        attr.meta.require_path_only().is_ok()
     }
 
     fn has_test_attr(attrs: &[Attribute]) -> bool {
@@ -56,7 +62,7 @@ impl<'a> RustTestVisitor<'a> {
     }
 
     fn has_ignore_attr(attrs: &[Attribute]) -> bool {
-        attrs.iter().any(Self::is_ignore_attr)
+        attrs.iter().any(Self::is_ignore_attr_without_reason)
     }
 
     fn analyze_function(&self, func: &ItemFn) -> TestFunction {
@@ -64,6 +70,7 @@ impl<'a> RustTestVisitor<'a> {
         // ソースコード中の行番号を近似: ident の文字列位置から算出
         let line = self.find_line_of_ident(&name);
         let body_source = self.extract_body_source(&func.block);
+        let body_line_count = body_source.lines().count();
         let is_ignored = Self::has_ignore_attr(&func.attrs);
         let is_empty = func.block.stmts.is_empty();
 
@@ -84,13 +91,19 @@ impl<'a> RustTestVisitor<'a> {
             has_assertion: analyzer.has_assertion,
             has_sleep: analyzer.has_sleep,
             has_conditional: analyzer.has_conditional,
+            has_branching: analyzer.has_branching,
+            has_for_loop: analyzer.has_for_loop,
+            has_assertion_in_loop: analyzer.has_assertion_in_loop,
             has_print: analyzer.has_print,
             is_empty,
             assertion_count: analyzer.assertion_count,
             assert_only_count: analyzer.assert_only_count,
+            assertions_without_message: analyzer.assertions_without_message,
+            assert_only_without_message: analyzer.assert_only_without_message,
             magic_numbers: analyzer.magic_numbers,
             has_early_return: analyzer.has_early_return,
             has_timeout_dependency: analyzer.has_timeout_dependency,
+            body_line_count,
         }
     }
 
@@ -147,10 +160,22 @@ struct BodyAnalyzer {
     has_assertion: bool,
     has_sleep: bool,
     has_conditional: bool,
+    /// 真の条件分岐 (if/match) があるか（for/while/loop は含まない）
+    has_branching: bool,
+    /// for ループがあるか
+    has_for_loop: bool,
+    /// for ループ内にアサーションがあるか（テーブル駆動テストの兆候）
+    has_assertion_in_loop: bool,
+    /// 現在ループの中にいるか（再帰的追跡用）
+    in_loop: bool,
     has_print: bool,
     assertion_count: usize,
     /// assert! のみのカウント（assert_eq!/assert_ne! を除く）
     assert_only_count: usize,
+    /// メッセージなし assert_eq!/assert_ne!/debug_assert_eq!/debug_assert_ne! のカウント
+    assertions_without_message: usize,
+    /// メッセージなし assert!/debug_assert! のカウント
+    assert_only_without_message: usize,
     magic_numbers: Vec<(i64, usize)>,
     has_early_return: bool,
     /// Duration::from_secs/from_millis, Instant::now(), SystemTime::now() などの時間API使用（sleep以外）
@@ -187,6 +212,7 @@ impl BodyAnalyzer {
             }
             Expr::If(expr_if) => {
                 self.has_conditional = true;
+                self.has_branching = true;
                 for stmt in &expr_if.then_branch.stmts {
                     self.visit_stmt(stmt);
                 }
@@ -196,27 +222,38 @@ impl BodyAnalyzer {
             }
             Expr::Match(expr_match) => {
                 self.has_conditional = true;
+                self.has_branching = true;
                 for arm in &expr_match.arms {
                     self.visit_expr(&arm.body);
                 }
             }
             Expr::ForLoop(expr_for) => {
                 self.has_conditional = true;
+                self.has_for_loop = true;
+                let prev_in_loop = self.in_loop;
+                self.in_loop = true;
                 for stmt in &expr_for.body.stmts {
                     self.visit_stmt(stmt);
                 }
+                self.in_loop = prev_in_loop;
             }
             Expr::While(expr_while) => {
                 self.has_conditional = true;
+                let prev_in_loop = self.in_loop;
+                self.in_loop = true;
                 for stmt in &expr_while.body.stmts {
                     self.visit_stmt(stmt);
                 }
+                self.in_loop = prev_in_loop;
             }
             Expr::Loop(expr_loop) => {
                 self.has_conditional = true;
+                let prev_in_loop = self.in_loop;
+                self.in_loop = true;
                 for stmt in &expr_loop.body.stmts {
                     self.visit_stmt(stmt);
                 }
+                self.in_loop = prev_in_loop;
             }
             Expr::Block(block) => {
                 for stmt in &block.block.stmts {
@@ -265,11 +302,34 @@ impl BodyAnalyzer {
         ) {
             self.has_assertion = true;
             self.assertion_count += 1;
+            if self.in_loop {
+                self.has_assertion_in_loop = true;
+            }
         }
         // assert! のみのカウント（assert_eq!/assert_ne! を除く）
         if matches!(path_str.as_str(), "assert" | "debug_assert") {
             self.assert_only_count += 1;
         }
+
+        // メッセージなしアサーションのカウント
+        // assert!/debug_assert!: カンマが1つ以上あればメッセージ付き
+        // assert_eq!/assert_ne!/debug_assert_eq!/debug_assert_ne!: カンマが2つ以上あればメッセージ付き
+        if matches!(path_str.as_str(), "assert" | "debug_assert") {
+            let comma_count = count_commas(&mac.tokens);
+            if comma_count == 0 {
+                self.assert_only_without_message += 1;
+            }
+        }
+        if matches!(
+            path_str.as_str(),
+            "assert_eq" | "assert_ne" | "debug_assert_eq" | "debug_assert_ne"
+        ) {
+            let comma_count = count_commas(&mac.tokens);
+            if comma_count < 2 {
+                self.assertions_without_message += 1;
+            }
+        }
+
         // Print macros
         if matches!(
             path_str.as_str(),
@@ -326,4 +386,13 @@ fn macro_path_string(path: &syn::Path) -> String {
         .last()
         .map(|s| s.ident.to_string())
         .unwrap_or_default()
+}
+
+/// マクロのトークンストリームにおけるトップレベルのカンマ数を数える
+fn count_commas(tokens: &proc_macro2::TokenStream) -> usize {
+    tokens
+        .clone()
+        .into_iter()
+        .filter(|t| matches!(t, TokenTree::Punct(p) if p.as_char() == ','))
+        .count()
 }

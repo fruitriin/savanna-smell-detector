@@ -8,25 +8,32 @@ impl SmellDetector for AssertionRouletteDetector {
     }
 
     fn detect(&self, test_file: &TestFile) -> Vec<TestSmell> {
-        test_file
-            .test_functions
-            .iter()
-            .filter(|f| f.assertion_count >= 2)
-            .map(|f| {
-                // assert! が1つ以上あれば Strict（メッセージがないと何が失敗したか不明）
-                // assert_eq!/assert_ne! のみなら通常（値は自動表示される）
-                let smell_type = if f.assert_only_count >= 1 {
-                    SmellType::AssertionRouletteStrict
-                } else {
-                    SmellType::AssertionRoulette
-                };
-                TestSmell::new(
-                    smell_type,
+        let mut smells = Vec::new();
+
+        for f in &test_file.test_functions {
+            let total_without_msg =
+                f.assertions_without_message + f.assert_only_without_message;
+
+            // Strict: メッセージなし assert!/debug_assert! が1つ以上 かつ
+            //         メッセージなしアサーション合計が2つ以上
+            if f.assert_only_without_message >= 1 && total_without_msg >= 2 {
+                smells.push(TestSmell::new(
+                    SmellType::AssertionRouletteStrict,
                     &test_file.path,
                     f.line,
                     Some(f.name.clone()),
-                )
-            })
-            .collect()
+                ));
+            // 通常: メッセージなし assert_eq!/assert_ne! が2つ以上
+            } else if f.assertions_without_message >= 2 {
+                smells.push(TestSmell::new(
+                    SmellType::AssertionRoulette,
+                    &test_file.path,
+                    f.line,
+                    Some(f.name.clone()),
+                ));
+            }
+        }
+
+        smells
     }
 }

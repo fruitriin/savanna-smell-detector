@@ -76,4 +76,31 @@ mod tests {
         let result = 2 + 2;
         assert_eq!(result, 4);
     }
+
+    // 10. Ignored Test with reason — 理由付きは検出しない
+    #[test]
+    #[ignore = "GUI environment required"]
+    fn test_ignored_with_reason() {
+        assert_eq!(1, 1);
+    }
+
+    // 11. Table-driven test — テーブル駆動テストは conditional ではない
+    #[test]
+    fn test_table_driven() {
+        let cases: &[(&str, i32)] = &[
+            ("one", 1),
+            ("two", 2),
+            ("three", 3),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(parse_num(input), *expected, "failed for: {input}");
+        }
+    }
+
+    fn parse_num(_s: &str) -> i32 { 1 }
 }
+
+// #[test]
+// fn test_commented_out() {
+//     assert_eq!(1, 1);
+// }

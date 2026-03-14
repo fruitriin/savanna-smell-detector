@@ -29,6 +29,10 @@ pub enum SmellType {
     SilentSkip,
     /// タイムアウト依存の成功判定（Duration/Instant/SystemTime の使用）
     FragileTest,
+    /// テスト関数が長すぎる（複数の関心事を持つ兆候）
+    GiantTest,
+    /// コメントアウトされたテスト関数
+    CommentedOutTest,
 }
 
 impl SmellType {
@@ -59,6 +63,10 @@ impl SmellType {
                 "テストが通ったんじゃない、テストが実行されなかっただけだ。条件付きスキップは #[ignore] を使いましょう。",
             SmellType::FragileTest =>
                 "固定タイムアウトに頼るテストは、CI の負荷が高い日に裏切ります。時間ではなくイベントを待ちましょう。",
+            SmellType::GiantTest =>
+                "テスト関数が長すぎます。1つのテストは1つの関心事を検証すべきです。分割を検討しましょう。",
+            SmellType::CommentedOutTest =>
+                "コメントアウトされたテストは、削除するか有効にするか、どちらかにしましょう。中途半端が一番よくない。",
         }
     }
 
@@ -77,6 +85,8 @@ impl SmellType {
             SmellType::NoTest => 5,
             SmellType::SilentSkip => 4,
             SmellType::FragileTest => 3,
+            SmellType::GiantTest => 3,
+            SmellType::CommentedOutTest => 3,
         }
     }
 }
@@ -96,6 +106,8 @@ impl fmt::Display for SmellType {
             SmellType::NoTest => "No Test",
             SmellType::SilentSkip => "Silent Skip",
             SmellType::FragileTest => "Fragile Test",
+            SmellType::GiantTest => "Giant Test",
+            SmellType::CommentedOutTest => "Commented-Out Test",
         };
         write!(f, "{}", s)
     }
@@ -138,16 +150,28 @@ pub struct TestFunction {
     pub has_assertion: bool,
     pub has_sleep: bool,
     pub has_conditional: bool,
+    /// 真の条件分岐 (if/match) があるか（for/while/loop は含まない）
+    pub has_branching: bool,
+    /// for ループがあるか
+    pub has_for_loop: bool,
+    /// for ループ内にアサーションがあるか（テーブル駆動テストの兆候）
+    pub has_assertion_in_loop: bool,
     pub has_print: bool,
     pub is_empty: bool,
     pub assertion_count: usize,
     /// assert! のみのカウント（assert_eq!/assert_ne! を除く）
     pub assert_only_count: usize,
+    /// メッセージなし assert_eq!/assert_ne! のカウント
+    pub assertions_without_message: usize,
+    /// メッセージなし assert!/debug_assert! のカウント
+    pub assert_only_without_message: usize,
     pub magic_numbers: Vec<(i64, usize)>, // (value, line)
     /// テスト関数の先頭付近（最初の3文）に条件付き early return があるか
     pub has_early_return: bool,
     /// Duration::from_secs/from_millis, Instant::now(), SystemTime::now() などの時間API使用（sleep以外）
     pub has_timeout_dependency: bool,
+    /// テスト関数のボディの行数
+    pub body_line_count: usize,
 }
 
 /// ファイル単位の解析結果（言語非依存）
@@ -156,4 +180,6 @@ pub struct TestFile {
     pub path: String,
     pub language: String,
     pub test_functions: Vec<TestFunction>,
+    /// ソースコードの全文（Commented-Out Test 検出等で使用）
+    pub source: Option<String>,
 }

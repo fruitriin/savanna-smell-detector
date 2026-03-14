@@ -144,8 +144,8 @@ fn main() {
     };
 
     // レポート出力
-    if cli.min_severity > 1 {
-        println!("  (showing severity >= {} only)", cli.min_severity);
+    if cli.min_severity > 1 && cli.format != "json" {
+        eprintln!("  (showing severity >= {} only)", cli.min_severity);
     }
 
     // --output が指定されているかで出力先を決める

@@ -9,6 +9,8 @@ mod magic_number;
 mod no_test;
 mod silent_skip;
 mod fragile_test;
+mod giant_test;
+mod commented_out_test;
 
 pub use empty_test::EmptyTestDetector;
 pub use missing_assertion::MissingAssertionDetector;
@@ -21,6 +23,8 @@ pub use magic_number::MagicNumberTestDetector;
 pub use no_test::NoTestDetector;
 pub use silent_skip::SilentSkipDetector;
 pub use fragile_test::FragileTestDetector;
+pub use giant_test::GiantTestDetector;
+pub use commented_out_test::CommentedOutTestDetector;
 
 use crate::core::SmellDetectorRegistry;
 
@@ -43,4 +47,6 @@ pub fn build_registry(magic_number_extra_whitelist: Vec<i64>) -> SmellDetectorRe
         .register(SilentSkipDetector)
         .register(NoTestDetector)
         .register(FragileTestDetector)
+        .register(GiantTestDetector::new())
+        .register(CommentedOutTestDetector)
 }
