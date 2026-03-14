@@ -1,6 +1,6 @@
 [package]
 name = "savanna-smell-detector"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "Test smell detector for multiple languages — Can you say the same in front of t_wada?"
 authors = ["fruitriin"]
