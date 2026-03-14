@@ -116,6 +116,14 @@ mod tests {
         thread::sleep(Duration::from_secs(1));
         assert_eq!(1, 1);
     }
+
+    // 14. Fragile Test (false positive) — Instant::now() without sleep is NOT fragile
+    #[test]
+    fn test_instant_without_sleep() {
+        let start = std::time::Instant::now();
+        let _elapsed = start.elapsed();
+        assert!(_elapsed.as_secs() < 10);
+    }
 }
 
 // #[test]

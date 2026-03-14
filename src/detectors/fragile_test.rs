@@ -11,7 +11,9 @@ impl SmellDetector for FragileTestDetector {
         test_file
             .test_functions
             .iter()
-            .filter(|f| f.has_timeout_dependency)
+            // sleep と時間API の両方を使っている場合のみ検出
+            // Instant::now() 単体での時刻算術（sleep なし）は安定しているため除外
+            .filter(|f| f.has_timeout_dependency && f.has_sleep)
             .map(|f| {
                 TestSmell::new(
                     SmellType::FragileTest,

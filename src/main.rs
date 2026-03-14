@@ -1,4 +1,5 @@
 mod agent;
+mod config;
 mod core;
 mod detectors;
 mod languages;
@@ -84,8 +85,69 @@ enum ReportItem<'a> {
     Agent(&'a AgentTestSmell),
 }
 
+fn was_arg_provided(name: &str) -> bool {
+    std::env::args().any(|a| a == format!("--{}", name) || a.starts_with(&format!("--{}=", name)))
+}
+
 fn main() {
     let cli = Cli::parse();
+
+    // .savanna.toml からプロジェクト設定を読み込む
+    let config_dir = if cli.path.is_file() {
+        cli.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| cli.path.clone())
+    } else {
+        cli.path.clone()
+    };
+    let project_config = config::ProjectConfig::load(&config_dir);
+
+    // マージ: CLI明示指定 > .savanna.toml > CLIデフォルト
+    let min_severity = if was_arg_provided("min-severity") {
+        cli.min_severity
+    } else {
+        project_config.min_severity.unwrap_or(cli.min_severity)
+    };
+
+    let fail_on_smell = if was_arg_provided("fail-on-smell") {
+        cli.fail_on_smell
+    } else {
+        project_config.fail_on_smell.unwrap_or(cli.fail_on_smell)
+    };
+
+    let magic_number_whitelist = if was_arg_provided("magic-number-whitelist") {
+        cli.magic_number_whitelist.clone()
+    } else {
+        project_config.magic_number_whitelist.unwrap_or(cli.magic_number_whitelist.clone())
+    };
+
+    let assertion_roulette_threshold = if was_arg_provided("assertion-roulette-threshold") {
+        cli.assertion_roulette_threshold
+    } else {
+        project_config.assertion_roulette_threshold.unwrap_or(cli.assertion_roulette_threshold)
+    };
+
+    let agent_rules = if was_arg_provided("agent-rules") {
+        cli.agent_rules.clone()
+    } else {
+        project_config.agent_rules.map(PathBuf::from).or(cli.agent_rules.clone())
+    };
+
+    let llm_command = if was_arg_provided("llm-command") {
+        cli.llm_command.clone()
+    } else {
+        project_config.llm_command.unwrap_or(cli.llm_command.clone())
+    };
+
+    let agent_confidence = if was_arg_provided("agent-confidence") {
+        cli.agent_confidence
+    } else {
+        project_config.agent_confidence.unwrap_or(cli.agent_confidence)
+    };
+
+    let glob_pattern = if was_arg_provided("glob") {
+        cli.glob.clone()
+    } else {
+        project_config.glob.or(cli.glob.clone())
+    };
 
     // 言語パーサーの登録
     let parsers: Vec<Box<dyn LanguageParser>> = vec![
@@ -93,7 +155,7 @@ fn main() {
     ];
 
     // ファイル収集
-    let files = collect_files(&cli.path, &cli.glob, &parsers);
+    let files = collect_files(&cli.path, &glob_pattern, &parsers);
 
     if files.is_empty() {
         eprintln!("No test files found in {:?}", cli.path);
@@ -118,14 +180,14 @@ fn main() {
     }
 
     // Phase 1: AST検出
-    let registry = detectors::build_registry(cli.magic_number_whitelist.clone(), cli.assertion_roulette_threshold);
+    let registry = detectors::build_registry(magic_number_whitelist.clone(), assertion_roulette_threshold);
     let smells = registry.detect_all(&test_files);
 
     // smell-allow サプレスの適用
     let mut suppressed: Vec<core::SuppressedSmell> = Vec::new();
     let smells: Vec<_> = smells
         .into_iter()
-        .filter(|s| s.smell_type.severity() >= cli.min_severity)
+        .filter(|s| s.smell_type.severity() >= min_severity)
         .filter(|smell| {
             // ソースから smell-allow をパース（TestFile を探す）
             let test_file = test_files.iter().find(|tf| tf.path == smell.file_path);
@@ -174,14 +236,14 @@ fn main() {
 
     // Phase 2: Agent検出（--agent-rules が指定され、--no-agent でなければ）
     let agent_smells: Vec<AgentTestSmell> = if !cli.no_agent {
-        if let Some(ref rules_dir) = cli.agent_rules {
+        if let Some(ref rules_dir) = agent_rules {
             match load_rules(rules_dir) {
                 Ok(rules) => {
                     if rules.is_empty() {
                         eprintln!("Warning: no agent rules found in {}", rules_dir.display());
                         Vec::new()
                     } else {
-                        run_agent_detection(&rules, &test_files, &cli.llm_command, cli.agent_confidence)
+                        run_agent_detection(&rules, &test_files, &llm_command, agent_confidence)
                     }
                 }
                 Err(e) => {
@@ -197,8 +259,8 @@ fn main() {
     };
 
     // レポート出力
-    if cli.min_severity > 1 && cli.format != "json" {
-        eprintln!("  (showing severity >= {} only)", cli.min_severity);
+    if min_severity > 1 && cli.format != "json" {
+        eprintln!("  (showing severity >= {} only)", min_severity);
     }
 
     // --output が指定されているかで出力先を決める
@@ -291,7 +353,7 @@ fn main() {
     }
 
     let has_smells = !smells.is_empty() || !agent_smells.is_empty();
-    if cli.fail_on_smell && has_smells {
+    if fail_on_smell && has_smells {
         std::process::exit(1);
     }
 }

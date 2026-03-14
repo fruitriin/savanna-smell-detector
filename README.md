@@ -56,7 +56,7 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 | Silent Skip | 4 | Conditional early return at the start of a test (`if !cond { return; }`) |
 | Sleepy Test | 3 | Test using `sleep()` |
 | Conditional Test Logic | 3 | `if`/`match` branching inside tests (table-driven `for` loops are excluded) |
-| Fragile Test | 3 | Tests depending on `Duration`/`Instant`/`SystemTime` APIs |
+| Fragile Test | 3 | Tests using `sleep()` with `Duration`/`Instant`/`SystemTime` APIs (time arithmetic without sleep is excluded) |
 | Giant Test | 3 | Test function exceeding 50 lines (configurable) |
 | Commented-Out Test | 3 | `// #[test]` commented-out test functions |
 | Ignored Test | 2 | `#[ignore]` without a reason (reason-annotated `#[ignore = "..."]` is excluded) |
@@ -89,6 +89,38 @@ git clone https://github.com/fruitriin/savanna-smell-detector.git
 cd savanna-smell-detector
 cargo build --release
 ```
+
+## Project Configuration (`.savanna.toml`)
+
+Create a `.savanna.toml` in your project root to persist CLI options:
+
+```toml
+# Minimum severity level (1-5)
+min-severity = 1
+
+# Fail on smell (for CI)
+fail-on-smell = true
+
+# Additional magic number whitelist
+magic-number-whitelist = [24, 80, 255, 256, 4096]
+
+# Assertion roulette threshold
+assertion-roulette-threshold = 5
+
+# Agent rules directory
+agent-rules = "rules/"
+
+# LLM command
+llm-command = "claude -p"
+
+# Agent confidence threshold
+agent-confidence = 0.7
+
+# File glob pattern
+glob = "**/*.rs"
+```
+
+All fields are optional. CLI arguments override config file values. The config file is discovered by searching from the target directory upward to the filesystem root.
 
 ## Usage
 
@@ -249,6 +281,7 @@ Return JSON: `{"is_smell": bool, "confidence": float, "reason": "...", "suggesti
 ```
 src/
 ├── main.rs              # CLI entry point (clap)
+├── config.rs            # .savanna.toml project config loader
 ├── core/                # Language-agnostic core
 │   ├── smell.rs         # SmellType, TestSmell, TestFunction, TestFile
 │   ├── smell_allow.rs   # Inline suppression (smell-allow comments)
