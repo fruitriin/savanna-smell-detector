@@ -12,15 +12,15 @@ impl SmellDetector for ConditionalLogicDetector {
             .test_functions
             .iter()
             .filter(|f| {
-                // 真の条件分岐（if/match）は常にスメル
+                // 真の条件分岐（if/match）がある場合はスメル
                 if f.has_branching {
                     return true;
                 }
-                // for ループ内にアサーションがある場合はテーブル駆動テストの可能性が高い → スメルではない
-                if f.has_for_loop && f.has_assertion_in_loop {
+                // for ループのみ（if/match なし）→ テーブル駆動 or 状態構築、いずれもスメルではない
+                if f.has_for_loop {
                     return false;
                 }
-                // それ以外のループ（while/loop、アサーションなしの for）はスメル
+                // while/loop はスメル（has_conditional が true で、has_branching=false, has_for_loop=false）
                 f.has_conditional
             })
             .map(|f| {

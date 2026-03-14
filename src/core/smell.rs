@@ -70,6 +70,47 @@ impl SmellType {
         }
     }
 
+    /// kebab-case の名前を返す（smell-allow 用）
+    pub fn kebab_name(&self) -> &'static str {
+        match self {
+            SmellType::EmptyTest => "empty-test",
+            SmellType::MissingAssertion => "missing-assertion",
+            SmellType::SleepyTest => "sleepy-test",
+            SmellType::ConditionalTestLogic => "conditional-test-logic",
+            SmellType::IgnoredTest => "ignored-test",
+            SmellType::RedundantPrint => "redundant-print",
+            SmellType::AssertionRoulette => "assertion-roulette",
+            SmellType::AssertionRouletteStrict => "assertion-roulette-strict",
+            SmellType::MagicNumberTest => "magic-number",
+            SmellType::NoTest => "no-test",
+            SmellType::SilentSkip => "silent-skip",
+            SmellType::FragileTest => "fragile-test",
+            SmellType::GiantTest => "giant-test",
+            SmellType::CommentedOutTest => "commented-out-test",
+        }
+    }
+
+    /// kebab-case 名から SmellType を復元
+    pub fn from_kebab_name(name: &str) -> Option<SmellType> {
+        match name.trim() {
+            "empty-test" => Some(SmellType::EmptyTest),
+            "missing-assertion" => Some(SmellType::MissingAssertion),
+            "sleepy-test" => Some(SmellType::SleepyTest),
+            "conditional-test-logic" => Some(SmellType::ConditionalTestLogic),
+            "ignored-test" => Some(SmellType::IgnoredTest),
+            "redundant-print" => Some(SmellType::RedundantPrint),
+            "assertion-roulette" => Some(SmellType::AssertionRoulette),
+            "assertion-roulette-strict" => Some(SmellType::AssertionRouletteStrict),
+            "magic-number" => Some(SmellType::MagicNumberTest),
+            "no-test" => Some(SmellType::NoTest),
+            "silent-skip" => Some(SmellType::SilentSkip),
+            "fragile-test" => Some(SmellType::FragileTest),
+            "giant-test" => Some(SmellType::GiantTest),
+            "commented-out-test" => Some(SmellType::CommentedOutTest),
+            _ => None,
+        }
+    }
+
     /// 重要度 (1-5)
     pub fn severity(&self) -> u8 {
         match self {

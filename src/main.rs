@@ -57,6 +57,10 @@ struct Cli {
     #[arg(long, value_delimiter = ',')]
     magic_number_whitelist: Vec<i64>,
 
+    /// Minimum number of assertions without message to trigger Assertion Roulette (default: 2)
+    #[arg(long, default_value_t = 2)]
+    assertion_roulette_threshold: usize,
+
     /// Write report to file (extension determines format: .json → JSON, others → Markdown)
     #[arg(long)]
     output: Option<PathBuf>,
@@ -64,6 +68,10 @@ struct Cli {
     /// Also print to stdout when --output is specified (tee mode)
     #[arg(long, default_value_t = false)]
     tee: bool,
+
+    /// Show suppressed smells (by smell-allow comments)
+    #[arg(long, default_value_t = false)]
+    show_suppressed: bool,
 }
 
 /// 統合出力用のアイテム型
@@ -110,13 +118,58 @@ fn main() {
     }
 
     // Phase 1: AST検出
-    let registry = detectors::build_registry(cli.magic_number_whitelist.clone());
+    let registry = detectors::build_registry(cli.magic_number_whitelist.clone(), cli.assertion_roulette_threshold);
     let smells = registry.detect_all(&test_files);
 
-    // フィルタリング
+    // smell-allow サプレスの適用
+    let mut suppressed: Vec<core::SuppressedSmell> = Vec::new();
     let smells: Vec<_> = smells
         .into_iter()
         .filter(|s| s.smell_type.severity() >= cli.min_severity)
+        .filter(|smell| {
+            // ソースから smell-allow をパース（TestFile を探す）
+            let test_file = test_files.iter().find(|tf| tf.path == smell.file_path);
+            if let Some(tf) = test_file {
+                if let Some(ref source) = tf.source {
+                    let allows = core::parse_smell_allows(source);
+
+                    // 関数レベルのスメル
+                    if let Some(ref func_name) = smell.function_name {
+                        if let Some(func) = tf.test_functions.iter().find(|f| f.name == *func_name) {
+                            let func_allows = core::get_allows_for_function(&allows, func.line, func.body_line_count);
+                            if func_allows.iter().any(|a| a.smell_types.contains(&smell.smell_type)) {
+                                let reason = func_allows.iter()
+                                    .find(|a| a.smell_types.contains(&smell.smell_type))
+                                    .and_then(|a| a.reason.clone());
+                                suppressed.push(core::SuppressedSmell {
+                                    smell_type: smell.smell_type,
+                                    file_path: smell.file_path.clone(),
+                                    line: smell.line,
+                                    function_name: smell.function_name.clone(),
+                                    reason,
+                                });
+                                return false;
+                            }
+                        }
+                    }
+
+                    // ファイルレベルのスメル（CommentedOutTest, NoTest）
+                    if core::is_line_suppressed(&allows, smell.smell_type, smell.line) {
+                        suppressed.push(core::SuppressedSmell {
+                            smell_type: smell.smell_type,
+                            file_path: smell.file_path.clone(),
+                            line: smell.line,
+                            function_name: smell.function_name.clone(),
+                            reason: allows.iter()
+                                .find(|a| a.smell_types.contains(&smell.smell_type) && (a.line == smell.line || a.line + 1 == smell.line))
+                                .and_then(|a| a.reason.clone()),
+                        });
+                        return false;
+                    }
+                }
+            }
+            true
+        })
         .collect();
 
     // Phase 2: Agent検出（--agent-rules が指定され、--no-agent でなければ）
@@ -208,6 +261,30 @@ fn main() {
 
                 if !agent_smells.is_empty() {
                     print_agent_smells_console(&agent_smells);
+                }
+
+                if !suppressed.is_empty() {
+                    use colored::Colorize;
+                    eprintln!(
+                        "  ({} smell(s) suppressed by smell-allow — use --show-suppressed to list)",
+                        suppressed.len()
+                    );
+                    if cli.show_suppressed {
+                        for s in &suppressed {
+                            let reason_str = s.reason.as_deref().unwrap_or("no reason given");
+                            let location = match &s.function_name {
+                                Some(name) => format!("{}:{} in {}", s.file_path, s.line, name),
+                                None => format!("{}:{}", s.file_path, s.line),
+                            };
+                            eprintln!(
+                                "    {} {} {}",
+                                "[suppressed]".dimmed(),
+                                s.smell_type,
+                                location,
+                            );
+                            eprintln!("      📝 {}", reason_str.dimmed());
+                        }
+                    }
                 }
             }
         }

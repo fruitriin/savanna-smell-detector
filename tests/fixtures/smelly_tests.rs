@@ -98,6 +98,24 @@ mod tests {
     }
 
     fn parse_num(_s: &str) -> i32 { 1 }
+
+    // 12. State-building loop — 状態構築ループは conditional ではない
+    #[test]
+    fn test_state_building_loop() {
+        let mut count = 0;
+        for _ in 0..10 {
+            count += 1;
+        }
+        assert_eq!(count, 10);
+    }
+
+    // 13. smell-allow — サプレスのテスト
+    // smell-allow: sleepy-test — 実プロセスの応答待ちで sleep が不可避
+    #[test]
+    fn test_sleepy_but_allowed() {
+        thread::sleep(Duration::from_secs(1));
+        assert_eq!(1, 1);
+    }
 }
 
 // #[test]
