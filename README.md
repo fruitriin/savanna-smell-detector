@@ -95,6 +95,9 @@ cargo build --release
 Create a `.savanna.toml` in your project root to persist CLI options:
 
 ```toml
+# Scan target directory (default: ".")
+target = "crates/"
+
 # Minimum severity level (1-5)
 min-severity = 1
 

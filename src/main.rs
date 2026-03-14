@@ -93,12 +93,17 @@ fn main() {
     let cli = Cli::parse();
 
     // .savanna.toml からプロジェクト設定を読み込む
-    let config_dir = if cli.path.is_file() {
-        cli.path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| cli.path.clone())
+    // まず CWD から探す（target 未確定のため）。次に確定した path からも探す。
+    let project_config = config::ProjectConfig::load(&std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+    // target のマージ: CLI位置引数がデフォルト "." なら config の target を使う
+    let path = if cli.path == PathBuf::from(".") {
+        project_config.target.as_ref()
+            .map(|t| PathBuf::from(t))
+            .unwrap_or(cli.path.clone())
     } else {
         cli.path.clone()
     };
-    let project_config = config::ProjectConfig::load(&config_dir);
 
     // マージ: CLI明示指定 > .savanna.toml > CLIデフォルト
     let min_severity = if was_arg_provided("min-severity") {
@@ -155,10 +160,10 @@ fn main() {
     ];
 
     // ファイル収集
-    let files = collect_files(&cli.path, &glob_pattern, &parsers);
+    let files = collect_files(&path, &glob_pattern, &parsers);
 
     if files.is_empty() {
-        eprintln!("No test files found in {:?}", cli.path);
+        eprintln!("No test files found in {:?}", path);
         std::process::exit(0);
     }
 
@@ -281,7 +286,7 @@ fn main() {
                 .unwrap_or_else(|e| format!("{{\"error\": \"{}\"}}", e))
         } else {
             // Markdown出力
-            let target = cli.path.display().to_string();
+            let target = path.display().to_string();
             let reporter = MarkdownReporter::new(target)
                 .with_agent_smells(agent_smells.clone());
             reporter.report_all(&smells)

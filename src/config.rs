@@ -4,6 +4,7 @@ use std::path::Path;
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ProjectConfig {
+    pub target: Option<String>,
     pub min_severity: Option<u8>,
     pub fail_on_smell: Option<bool>,
     pub magic_number_whitelist: Option<Vec<i64>>,
