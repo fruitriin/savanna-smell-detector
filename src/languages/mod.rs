@@ -1,6 +1,8 @@
 mod rust;
+mod shell;
 
 pub use rust::RustParser;
+pub use shell::ShellParser;
 
 use crate::core::TestFile;
 

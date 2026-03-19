@@ -7,7 +7,7 @@ mod reporters;
 
 use agent::{AgentTestSmell, load_rules, run_agent_detection};
 use clap::Parser;
-use languages::{LanguageParser, RustParser};
+use languages::{LanguageParser, RustParser, ShellParser};
 use reporters::{ConsoleReporter, MarkdownReporter, SmellReporter};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -157,6 +157,7 @@ fn main() {
     // 言語パーサーの登録
     let parsers: Vec<Box<dyn LanguageParser>> = vec![
         Box::new(RustParser),
+        Box::new(ShellParser),
     ];
 
     // ファイル収集
@@ -418,7 +419,17 @@ fn collect_files(
             .map(|idx| vec![(path.clone(), idx)])
             .unwrap_or_default();
     } else {
-        format!("{}/**/*.rs", path.display())
+        {
+            // 全登録パーサーの拡張子から glob パターンを動的生成
+            let exts: Vec<&str> = parsers.iter()
+                .flat_map(|p| p.extensions().iter().copied())
+                .collect();
+            if exts.len() == 1 {
+                format!("{}/**/*.{}", path.display(), exts[0])
+            } else {
+                format!("{}/**/*.{{{}}}", path.display(), exts.join(","))
+            }
+        }
     };
 
     if let Ok(entries) = glob::glob(&pattern) {
