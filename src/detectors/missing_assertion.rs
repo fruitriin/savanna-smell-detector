@@ -11,7 +11,17 @@ impl SmellDetector for MissingAssertionDetector {
         test_file
             .test_functions
             .iter()
-            .filter(|f| !f.is_empty && !f.has_assertion)
+            .filter(|f| {
+                if f.is_empty || f.has_assertion {
+                    return false;
+                }
+                // Go の Benchmark*/Example* はアサーション不要
+                // (Benchmark はパフォーマンス測定、Example は // Output: コメントが実質アサーション)
+                if f.name.starts_with("Benchmark") || f.name.starts_with("Example") {
+                    return false;
+                }
+                true
+            })
             .map(|f| {
                 TestSmell::new(
                     SmellType::MissingAssertion,
