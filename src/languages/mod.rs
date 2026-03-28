@@ -1,6 +1,8 @@
+mod go;
 mod rust;
 mod shell;
 
+pub use go::GoParser;
 pub use rust::RustParser;
 pub use shell::ShellParser;
 
