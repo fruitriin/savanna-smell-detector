@@ -155,7 +155,7 @@ fn walk_statements(node: &Node, source: &[u8], info: &mut FunctionInfo, in_loop:
     for child in node.children(&mut cursor) {
         match child.kind() {
             "if_statement" => {
-                if !is_go_error_check_idiom(&child, source) {
+                if !is_go_assertion_idiom(&child, source) {
                     info.has_if = true;
                 }
                 walk_statements(&child, source, info, in_loop);
@@ -396,43 +396,16 @@ fn find_statement_list<'a>(block: &'a Node<'a>) -> Option<Node<'a>> {
 
 /// Go のエラーチェックイディオムかどうか判定する
 /// `if err != nil { t.Fatal(...) }` パターン
-fn is_go_error_check_idiom(if_node: &Node, source: &[u8]) -> bool {
-    // else ブランチがある場合は除外しない（通常のイディオムではない）
+/// Go のアサーションイディオムかどうか判定する
+/// `if condition { t.Fatal(...) }` パターン — Go では条件チェック + テスト失敗が標準的なアサーション
+/// err != nil, len(x) != N, result != expected 等、条件は問わない
+fn is_go_assertion_idiom(if_node: &Node, source: &[u8]) -> bool {
+    // else ブランチがある場合は通常の条件分岐として扱う
     if if_node.child_by_field_name("alternative").is_some() {
         return false;
     }
 
-    // 条件部を取得
-    let condition = match if_node.child_by_field_name("condition") {
-        Some(c) => c,
-        None => return false,
-    };
-
-    if condition.kind() != "binary_expression" {
-        return false;
-    }
-
-    // 演算子が != or == で、片方が nil、もう片方が err を含む名前か
-    let has_nil_check = {
-        let mut cursor = condition.walk();
-        let children: Vec<_> = condition.children(&mut cursor).collect();
-        let has_nil = children.iter().any(|n| n.kind() == "nil");
-        let has_err = children.iter().any(|n| {
-            let text = n.utf8_text(source).unwrap_or("");
-            text == "err" || text.ends_with("Err") || text.ends_with("err")
-        });
-        let has_comparison = children.iter().any(|n| {
-            let text = n.utf8_text(source).unwrap_or("");
-            text == "!=" || text == "=="
-        });
-        has_nil && has_err && has_comparison
-    };
-
-    if !has_nil_check {
-        return false;
-    }
-
-    // consequence ブロックの中身が t.Fatal/t.Fatalf/t.Error/t.Errorf のみかチェック
+    // consequence ブロックの中身が t.Fatal/t.Error 系のみかチェック
     let consequence = match if_node.child_by_field_name("consequence") {
         Some(c) => c,
         None => return false,
@@ -566,7 +539,7 @@ func TestAdd(t *testing.T) {
         assert_eq!(fns[0].name, "TestAdd");
         assert!(fns[0].has_assertion);
         assert!(!fns[0].is_empty);
-        assert!(fns[0].has_branching); // if
+        assert!(!fns[0].has_branching); // if cond { t.Errorf } はアサーションイディオム
     }
 
     #[test]
@@ -1028,9 +1001,9 @@ func TestErrorCheck(t *testing.T) {
 "#;
         let fns = parse_test_functions(source);
         assert_eq!(fns.len(), 1);
-        // err != nil チェックは除外、result != 5 は残る
-        assert!(fns[0].has_branching);
-        assert!(fns[0].has_conditional);
+        // 両方ともアサーションイディオム（if cond { t.Fatal/t.Error }）→ conditional ではない
+        assert!(!fns[0].has_branching);
+        assert!(!fns[0].has_conditional);
     }
 
     #[test]
@@ -1056,8 +1029,8 @@ func TestOnlyErrorChecks(t *testing.T) {
 "#;
         let fns = parse_test_functions(source);
         assert_eq!(fns.len(), 1);
-        // b != expected の if だけがカウントされる
-        assert!(fns[0].has_branching);
+        // 全て if cond { t.Fatal/t.Error } パターン → conditional ではない
+        assert!(!fns[0].has_branching);
     }
 
     #[test]
@@ -1079,6 +1052,67 @@ func TestPureErrorChecks(t *testing.T) {
         assert_eq!(fns.len(), 1);
         assert!(!fns[0].has_branching);
         assert!(!fns[0].has_conditional);
+    }
+
+    #[test]
+    fn test_go_len_check_not_conditional() {
+        // if len(x) != N { t.Fatalf(...) } もアサーションイディオム
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestLenCheck(t *testing.T) {
+    result := GetItems()
+    if len(result) != 3 {
+        t.Fatalf("expected 3 items, got %d", len(result))
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(!fns[0].has_branching);
+    }
+
+    #[test]
+    fn test_go_value_check_not_conditional() {
+        // if !strings.Contains(msg, "rm") { t.Errorf(...) } もアサーションイディオム
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestValueCheck(t *testing.T) {
+    msg := GetMessage()
+    if msg != "expected" {
+        t.Errorf("got %s, want expected", msg)
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(!fns[0].has_branching);
+    }
+
+    #[test]
+    fn test_go_if_else_still_conditional() {
+        // if/else は本当の条件分岐 → 除外しない
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestIfElse(t *testing.T) {
+    if runtime.GOOS == "linux" {
+        t.Error("linux specific failure")
+    } else {
+        t.Log("non-linux")
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(fns[0].has_branching);
     }
 
     // --- Task 2: カスタムヘルパー関数のアサーション認識 ---
