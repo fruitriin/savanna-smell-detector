@@ -40,6 +40,8 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 | Language | Parser | Status |
 |----------|--------|--------|
 | Rust | `syn` (AST) | Available |
+| Shell / Bash / Bats | regex | Available |
+| Go | tree-sitter (AST) | Available |
 | TypeScript | — | Planned |
 | Python | — | Planned |
 | Java | — | Planned |
@@ -48,22 +50,24 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 
 ### Phase 1: AST-based Detection
 
-| Smell | Severity | Description |
-|-------|----------|-------------|
-| Empty Test | 5 | Test method with no body |
-| No Test | 5 | Source file with no test functions |
-| Missing Assertion | 4 | Test without any assertions |
-| Silent Skip | 4 | Conditional early return at the start of a test (`if !cond { return; }`) |
-| Sleepy Test | 3 | Test using `sleep()` |
-| Conditional Test Logic | 3 | `if`/`match` branching inside tests (table-driven `for` loops are excluded) |
-| Fragile Test | 3 | Tests using `sleep()` with `Duration`/`Instant`/`SystemTime` APIs (time arithmetic without sleep is excluded) |
-| Giant Test | 3 | Test function exceeding 50 lines (configurable) |
-| Commented-Out Test | 3 | `// #[test]` commented-out test functions |
-| Ignored Test | 2 | `#[ignore]` without a reason (reason-annotated `#[ignore = "..."]` is excluded) |
-| Assertion Roulette (Strict) | 2 | Multiple `assert!` without messages (failure reason is completely unclear) |
-| Magic Number Test | 2 | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
-| Assertion Roulette | 1 | Multiple `assert_eq!`/`assert_ne!` without messages (values are auto-displayed but intent is unclear) |
-| Redundant Print | 1 | `println!`, `dbg!`, `eprintln!` left in tests |
+| Smell | Severity | Rust | Shell | Go | Description |
+|-------|----------|------|-------|-----|-------------|
+| Empty Test | 5 | ✅ | ✅ | ✅ | Test method with no body |
+| No Test | 5 | ✅ | ✅ | ✅ | Source file with no test functions |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | Test without any assertions |
+| Silent Skip | 4 | ✅ | ✅ | ✅ | Conditional early return at the start of a test |
+| Sleepy Test | 3 | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching inside tests (table-driven `for` loops are excluded) |
+| Fragile Test | 3 | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
+| Giant Test | 3 | ✅ | ✅ | ✅ | Test function exceeding 50 lines (configurable) |
+| Commented-Out Test | 3 | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, etc.) |
+| Ignored Test | 2 | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` without a reason |
+| Assertion Roulette (Strict) | 2 | ✅ | — | — | Multiple `assert!` without messages (Rust-specific: `assert!` vs `assert_eq!` distinction) |
+| Magic Number Test | 2 | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
+| Assertion Roulette | 1 | ✅ | — | ✅ | Multiple assertions without messages (testify `assert.Equal` / `t.Fail()` / `t.Error()` etc.) |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`, `fmt.Println`, `t.Log`, etc.) |
+
+**Legend:** ✅ = implemented, ⚠️ = partial, — = not applicable or not yet implemented
 
 ### Phase 2: LLM Agent Detection (Optional)
 
@@ -310,7 +314,9 @@ src/
 │   ├── prefilter.rs
 │   └── runner.rs
 ├── languages/           # Language parsers (extension point)
-│   └── rust.rs          # Rust AST analysis via syn
+│   ├── rust.rs          # Rust AST analysis via syn
+│   ├── shell.rs         # Shell/Bash/Bats regex-based analysis
+│   └── go.rs            # Go AST analysis via tree-sitter
 └── reporters/           # Output formats
     ├── console.rs       # Colored console with severity bars
     ├── json.rs          # Structured JSON for CI/LLM

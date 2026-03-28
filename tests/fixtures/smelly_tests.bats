@@ -75,3 +75,8 @@
     step25="final_step"
     [ "$step25" = "final_step" ]
 }
+
+# 9. Commented-Out Test — コメントアウトされたテスト
+# @test "commented out test" {
+#     [ 1 -eq 1 ]
+# }

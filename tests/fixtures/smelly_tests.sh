@@ -42,4 +42,9 @@ test_early_return() {
     assertEquals 1 1
 }
 
+# 8. Commented-Out Test — コメントアウトされたテスト
+# test_commented_out() {
+#     assertEquals 1 1
+# }
+
 . shunit2

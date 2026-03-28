@@ -95,6 +95,24 @@ func TestGiant(t *testing.T) {
 	}
 }
 
+// Commented-Out Test — コメントアウトされたテスト
+// func TestCommentedOut(t *testing.T) {
+//     t.Error("this test is commented out")
+// }
+
+// Assertion Roulette — メッセージなしのアサーションが複数（testify）
+func TestAssertionRouletteTestify(t *testing.T) {
+	assert.Equal(t, 1, Add(0, 1))
+	assert.Equal(t, 2, Add(1, 1))
+	assert.Equal(t, 3, Add(1, 2))
+}
+
+// Assertion Roulette — メッセージありは問題なし（参考）
+func TestAssertionWithMessage(t *testing.T) {
+	assert.Equal(t, 1, Add(0, 1), "zero plus one should be one")
+	assert.Equal(t, 2, Add(1, 1), "one plus one should be two")
+}
+
 // テーブル駆動テスト（これ自体は良いパターン）
 func TestTableDriven(t *testing.T) {
 	tests := []struct {
