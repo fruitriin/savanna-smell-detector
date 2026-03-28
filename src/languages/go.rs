@@ -73,7 +73,10 @@ fn extract_test_functions(root: &Node, source: &[u8]) -> Vec<TestFunction> {
 fn analyze_function(name: &str, line: usize, body: &Node, source: &[u8]) -> TestFunction {
     let body_source = node_text(body, source);
     // ボディの行数（開き/閉じの波括弧行を除く）
-    let body_line_count = body.end_position().row.saturating_sub(body.start_position().row + 1);
+    let raw_body_line_count = body.end_position().row.saturating_sub(body.start_position().row + 1);
+    // テーブル定義（composite_literal）の行数を除外
+    let table_lines = count_table_definition_lines(body, source);
+    let body_line_count = raw_body_line_count.saturating_sub(table_lines);
 
     let stmts = find_statement_list(body);
 
@@ -152,7 +155,9 @@ fn walk_statements(node: &Node, source: &[u8], info: &mut FunctionInfo, in_loop:
     for child in node.children(&mut cursor) {
         match child.kind() {
             "if_statement" => {
-                info.has_if = true;
+                if !is_go_error_check_idiom(&child, source) {
+                    info.has_if = true;
+                }
                 walk_statements(&child, source, info, in_loop);
             }
             "expression_switch_statement" | "type_switch_statement" => {
@@ -223,12 +228,22 @@ fn check_call(call: &Node, source: &[u8], info: &mut FunctionInfo, in_loop: bool
             }
             "identifier" => {
                 let func_name = node_text(&func_node, source);
+                let lower = func_name.to_lowercase();
                 // println(...)
                 if func_name == "println" {
                     info.has_print = true;
                 }
                 // gomega: Expect(...) / Ω(...)
                 if func_name == "Expect" || func_name == "Ω" {
+                    info.assertion_count += 1;
+                    if in_loop { info.has_assertion_in_loop = true; }
+                }
+                // ヒューリスティック: assert/require/must/expect/check を含む関数名
+                // （equal は Gomega の Equal(...) マッチャーと区別できないため除外）
+                else if lower.contains("assert") || lower.contains("require")
+                    || lower.starts_with("must") || lower.starts_with("expect")
+                    || lower.starts_with("check")
+                {
                     info.assertion_count += 1;
                     if in_loop { info.has_assertion_in_loop = true; }
                 }
@@ -267,10 +282,8 @@ fn check_selector_call(obj: &str, method: &str, call: &Node, source: &[u8], info
             "Skip" | "SkipNow" | "Skipf" => {
                 info.has_skip = true;
             }
-            // print
-            "Log" | "Logf" => {
-                info.has_print = true;
-            }
+            // t.Log / t.Logf は -v フラグ時のみ表示されるテストログ機能であり
+            // fmt.Println（常に表示）とは異なるため has_print に含めない
             _ => {}
         }
 
@@ -379,6 +392,129 @@ fn find_statement_list<'a>(block: &'a Node<'a>) -> Option<Node<'a>> {
         }
     }
     None
+}
+
+/// Go のエラーチェックイディオムかどうか判定する
+/// `if err != nil { t.Fatal(...) }` パターン
+fn is_go_error_check_idiom(if_node: &Node, source: &[u8]) -> bool {
+    // else ブランチがある場合は除外しない（通常のイディオムではない）
+    if if_node.child_by_field_name("alternative").is_some() {
+        return false;
+    }
+
+    // 条件部を取得
+    let condition = match if_node.child_by_field_name("condition") {
+        Some(c) => c,
+        None => return false,
+    };
+
+    if condition.kind() != "binary_expression" {
+        return false;
+    }
+
+    // 演算子が != or == で、片方が nil、もう片方が err を含む名前か
+    let has_nil_check = {
+        let mut cursor = condition.walk();
+        let children: Vec<_> = condition.children(&mut cursor).collect();
+        let has_nil = children.iter().any(|n| n.kind() == "nil");
+        let has_err = children.iter().any(|n| {
+            let text = n.utf8_text(source).unwrap_or("");
+            text == "err" || text.ends_with("Err") || text.ends_with("err")
+        });
+        let has_comparison = children.iter().any(|n| {
+            let text = n.utf8_text(source).unwrap_or("");
+            text == "!=" || text == "=="
+        });
+        has_nil && has_err && has_comparison
+    };
+
+    if !has_nil_check {
+        return false;
+    }
+
+    // consequence ブロックの中身が t.Fatal/t.Fatalf/t.Error/t.Errorf のみかチェック
+    let consequence = match if_node.child_by_field_name("consequence") {
+        Some(c) => c,
+        None => return false,
+    };
+
+    let stmts = find_statement_list_from(&consequence);
+    match stmts {
+        None => true, // 空ブロック
+        Some(sl) => {
+            let mut cursor = sl.walk();
+            let statements: Vec<Node> = sl.children(&mut cursor)
+                .filter(|n: &Node| n.kind() != "comment")
+                .collect();
+
+            // 文が3個以下で、全てがアサーション/return/continue
+            if statements.len() > 3 {
+                return false;
+            }
+
+            statements.iter().all(|stmt: &Node| {
+                match stmt.kind() {
+                    "return_statement" | "continue_statement" => true,
+                    "expression_statement" => {
+                        if let Some(call) = stmt.child(0) {
+                            if call.kind() == "call_expression" {
+                                if let Some(func) = call.child(0) {
+                                    if func.kind() == "selector_expression" {
+                                        let obj = func.child(0)
+                                            .map(|n: Node| n.utf8_text(source).unwrap_or(""))
+                                            .unwrap_or("");
+                                        let method = func.child_by_field_name("field")
+                                            .map(|n: Node| n.utf8_text(source).unwrap_or(""))
+                                            .unwrap_or("");
+                                        return (obj == "t" || obj == "b" || obj == "f")
+                                            && matches!(method, "Fatal" | "Fatalf" | "Error" | "Errorf" | "Fail" | "FailNow" | "Skip" | "Skipf");
+                                    }
+                                }
+                            }
+                        }
+                        false
+                    }
+                    _ => false,
+                }
+            })
+        }
+    }
+}
+
+/// statement_list ノードを block 内から取得（ライフタイムを独立させた版）
+fn find_statement_list_from<'a>(block: &'a Node<'a>) -> Option<Node<'a>> {
+    let mut cursor = block.walk();
+    for child in block.children(&mut cursor) {
+        if child.kind() == "statement_list" {
+            return Some(child);
+        }
+    }
+    None
+}
+
+/// composite_literal のうち大きなリテラルの行数を数える
+fn count_table_definition_lines(body: &Node, source: &[u8]) -> usize {
+    let mut total = 0;
+    count_composite_literal_lines(body, source, &mut total);
+    total
+}
+
+fn count_composite_literal_lines(node: &Node, source: &[u8], total: &mut usize) {
+    let _ = source; // 将来の拡張のため保持
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "composite_literal" {
+            let lines = child.end_position().row.saturating_sub(child.start_position().row);
+            // 5行以上のリテラルだけ除外（小さいリテラルは通常のコード）
+            if lines >= 5 {
+                *total += lines;
+            }
+        }
+        // 再帰（composite_literal の中は探さない）
+        if child.kind() != "composite_literal" {
+            count_composite_literal_lines(&child, source, total);
+        }
+    }
 }
 
 /// ノード内に指定 kind のノードが含まれるか
@@ -869,5 +1005,180 @@ func TestCommentedCode(t *testing.T) {
         assert_eq!(fns.len(), 1);
         assert!(!fns[0].has_assertion);
         assert!(!fns[0].has_sleep);
+    }
+
+    // --- Task 1: エラーチェックイディオムの除外 ---
+
+    #[test]
+    fn test_go_error_check_not_conditional() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestErrorCheck(t *testing.T) {
+    result, err := DoSomething()
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if result != 5 {
+        t.Errorf("expected 5, got %d", result)
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        // err != nil チェックは除外、result != 5 は残る
+        assert!(fns[0].has_branching);
+        assert!(fns[0].has_conditional);
+    }
+
+    #[test]
+    fn test_go_only_error_checks_no_conditional() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestOnlyErrorChecks(t *testing.T) {
+    a, err := Step1()
+    if err != nil {
+        t.Fatal(err)
+    }
+    b, err := Step2(a)
+    if err != nil {
+        t.Fatal(err)
+    }
+    if b != expected {
+        t.Errorf("got %v, want %v", b, expected)
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        // b != expected の if だけがカウントされる
+        assert!(fns[0].has_branching);
+    }
+
+    #[test]
+    fn test_go_pure_error_checks_not_conditional() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestPureErrorChecks(t *testing.T) {
+    result, err := DoSomething()
+    if err != nil {
+        t.Fatal(err)
+    }
+    _ = result
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(!fns[0].has_branching);
+        assert!(!fns[0].has_conditional);
+    }
+
+    // --- Task 2: カスタムヘルパー関数のアサーション認識 ---
+
+    #[test]
+    fn test_custom_helper_recognized_as_assertion() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestCustomHelper(t *testing.T) {
+    result := DoSomething()
+    assertEqual(t, "result", result, expected)
+    mustParseConfig(t, "config")
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(fns[0].has_assertion);
+        assert_eq!(fns[0].assertion_count, 2);
+    }
+
+    // --- Task 3: テーブル定義行数の除外 ---
+
+    #[test]
+    fn test_table_driven_line_count_excluded() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestTableDrivenGiant(t *testing.T) {
+    tests := []struct {
+        input    int
+        expected int
+    }{
+        {1, 2},
+        {2, 4},
+        {3, 6},
+        {4, 8},
+        {5, 10},
+        {6, 12},
+        {7, 14},
+        {8, 16},
+    }
+    for _, tt := range tests {
+        if got := Double(tt.input); got != tt.expected {
+            t.Errorf("Double(%d) = %d, want %d", tt.input, got, tt.expected)
+        }
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        // テーブル定義を除いた実質的な行数
+        assert!(fns[0].body_line_count < 15, "body_line_count should exclude table definition, got {}", fns[0].body_line_count);
+    }
+
+    // --- Task 4: t.Log / t.Logf を has_print から除外 ---
+
+    #[test]
+    fn test_t_log_not_redundant_print() {
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestWithTLog(t *testing.T) {
+    t.Log("verbose output")
+    t.Logf("formatted: %d", 42)
+    if result != expected {
+        t.Error("mismatch")
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(!fns[0].has_print); // t.Log は print 扱いしない
+    }
+
+    #[test]
+    fn test_fmt_println_still_redundant() {
+        let source = r#"
+package foo_test
+
+import (
+    "fmt"
+    "testing"
+)
+
+func TestWithFmtPrint(t *testing.T) {
+    fmt.Println("debug output")
+    if result != expected {
+        t.Error("mismatch")
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(fns[0].has_print); // fmt.Println は依然として print 扱い
     }
 }

@@ -162,6 +162,7 @@ pub struct TestSmell {
     pub line: usize,
     pub function_name: Option<String>,
     pub message: String,
+    pub severity: u8,
 }
 
 impl TestSmell {
@@ -172,6 +173,7 @@ impl TestSmell {
         function_name: Option<String>,
     ) -> Self {
         Self {
+            severity: smell_type.severity(),
             message: smell_type.roar().to_string(),
             smell_type,
             file_path: file_path.into(),
