@@ -27,13 +27,14 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 
 ## Features
 
-- **Multi-language support** — Pluggable language parsers (Rust via `syn`, more coming)
-- **AST-based detection** — Accurate analysis, not regex guessing
+- **Multi-language support** — Rust (`syn`), Go (`tree-sitter`), Shell/Bash/Bats (regex) with `--language` filter
+- **AST-based detection** — Accurate analysis with language-aware idiom recognition (e.g. Go's `if err != nil { t.Fatal }`)
 - **LLM agent detection** — Optional Phase 2 detection using LLM-based rules
-- **CI-friendly** — JSON output + `--fail-on-smell` exit code control + severity filtering
-- **Inline suppression** — `// smell-allow:` comments to suppress known intentional smells
+- **CI-friendly** — JSON output (with severity) + `--fail-on-smell` exit code control + severity filtering
+- **Inline suppression** — `// smell-allow:` comments to suppress known intentional smells (works across all languages)
 - **LLM-ready** — Structured JSON output that LLMs can read and act on
 - **Extensible** — Adding a new smell is just implementing a trait, or writing a Markdown rule
+- **Heuristic helpers** — Custom assertion helpers (`assertEqual`, `mustParse`, etc.) are recognized automatically
 
 ## Supported Languages
 
@@ -54,20 +55,30 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 |-------|----------|------|-------|-----|-------------|
 | Empty Test | 5 | ✅ | ✅ | ✅ | Test method with no body |
 | No Test | 5 | ✅ | ✅ | ✅ | Source file with no test functions |
-| Missing Assertion | 4 | ✅ | ✅ | ✅ | Test without any assertions |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | Test without any assertions (Go: `Benchmark*`/`Example*` excluded; custom helpers recognized) |
 | Silent Skip | 4 | ✅ | ✅ | ✅ | Conditional early return at the start of a test |
 | Sleepy Test | 3 | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` |
-| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching inside tests (table-driven `for` loops are excluded) |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching (Go: `if cond { t.Fatal }` assertion idioms excluded) |
 | Fragile Test | 3 | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
-| Giant Test | 3 | ✅ | ✅ | ✅ | Test function exceeding 50 lines (configurable) |
+| Giant Test | 3 | ✅ | ✅ | ✅ | Test function exceeding 50 lines (Go: table definitions excluded from count) |
 | Commented-Out Test | 3 | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, etc.) |
 | Ignored Test | 2 | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` without a reason |
 | Assertion Roulette (Strict) | 2 | ✅ | — | — | Multiple `assert!` without messages (Rust-specific: `assert!` vs `assert_eq!` distinction) |
 | Magic Number Test | 2 | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
-| Assertion Roulette | 1 | ✅ | — | ✅ | Multiple assertions without messages (testify `assert.Equal` / `t.Fail()` / `t.Error()` etc.) |
-| Redundant Print | 1 | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`, `fmt.Println`, `t.Log`, etc.) |
+| Assertion Roulette | 1 | ✅ | — | ✅ | Multiple assertions without messages (Go: testify msgless detection via arg count) |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`/`fmt.Println`; Go: `t.Log` excluded — `-v` only) |
 
-**Legend:** ✅ = implemented, ⚠️ = partial, — = not applicable or not yet implemented
+**Legend:** ✅ = implemented, — = not applicable or not yet implemented
+
+### Go-specific Intelligence
+
+The Go parser uses [tree-sitter](https://tree-sitter.github.io/) for accurate AST analysis and recognizes Go-specific patterns:
+
+- **Assertion idiom exclusion** — `if condition { t.Fatal(...) }` is Go's standard assertion pattern (equivalent to Rust's `unwrap()`), not a test logic branch. These are excluded from Conditional Test Logic regardless of the condition (`err != nil`, `len(x) != N`, `!strings.Contains(...)`, etc.)
+- **Custom helper recognition** — Functions named `assertEqual`, `mustParse`, `checkResult`, `expectError`, etc. are heuristically recognized as assertions
+- **Table definition exclusion** — `[]struct{...}{...}` literal definitions (5+ lines) are excluded from Giant Test line counts
+- **Benchmark/Example exclusion** — `Benchmark*` and `Example*` functions are excluded from Missing Assertion (benchmarks don't need assertions; examples use `// Output:` comments)
+- **`t.Log` exclusion** — `t.Log`/`t.Logf` are excluded from Redundant Print (only shown with `go test -v`, unlike `fmt.Println`)
 
 ### Phase 2: LLM Agent Detection (Optional)
 
