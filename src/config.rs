@@ -13,6 +13,7 @@ pub struct ProjectConfig {
     pub llm_command: Option<String>,
     pub agent_confidence: Option<f64>,
     pub glob: Option<String>,
+    pub language: Option<String>,
 }
 
 impl ProjectConfig {

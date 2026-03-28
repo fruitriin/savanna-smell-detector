@@ -73,6 +73,10 @@ struct Cli {
     /// Show suppressed smells (by smell-allow comments)
     #[arg(long, default_value_t = false)]
     show_suppressed: bool,
+
+    /// Language filter (e.g. "rust", "go", "shell"). Only scan files of the specified language.
+    #[arg(short, long)]
+    language: Option<String>,
 }
 
 /// 統合出力用のアイテム型
@@ -154,12 +158,31 @@ fn main() {
         project_config.glob.or(cli.glob.clone())
     };
 
+    let language = if was_arg_provided("language") {
+        cli.language.clone()
+    } else {
+        project_config.language.or(cli.language.clone())
+    };
+
     // 言語パーサーの登録
-    let parsers: Vec<Box<dyn LanguageParser>> = vec![
+    let all_parsers: Vec<Box<dyn LanguageParser>> = vec![
         Box::new(RustParser),
         Box::new(ShellParser),
         Box::new(GoParser),
     ];
+
+    let parsers: Vec<Box<dyn LanguageParser>> = if let Some(ref lang) = language {
+        all_parsers.into_iter()
+            .filter(|p| p.language_name() == lang.as_str())
+            .collect()
+    } else {
+        all_parsers
+    };
+
+    if parsers.is_empty() {
+        eprintln!("Unknown language: {:?}. Available: rust, shell, go", language.unwrap_or_default());
+        std::process::exit(1);
+    }
 
     // ファイル収集
     let files = collect_files(&path, &glob_pattern, &parsers);

@@ -125,6 +125,9 @@ agent-confidence = 0.7
 
 # File glob pattern
 glob = "**/*.rs"
+
+# Language filter (rust, shell, go)
+language = "rust"
 ```
 
 All fields are optional. CLI arguments override config file values. The config file is discovered by searching from the target directory upward to the filesystem root.
@@ -155,6 +158,9 @@ savanna-smell-detector . --magic-number-whitelist "24,80,255,256"
 
 # Adjust assertion roulette threshold
 savanna-smell-detector . --assertion-roulette-threshold 4
+
+# Scan only Go test files
+savanna-smell-detector . --language go
 
 # Show suppressed smells
 savanna-smell-detector . --show-suppressed
@@ -193,6 +199,7 @@ savanna-smell-detector . --agent-rules rules/ --no-agent
 | `--llm-command` | `claude -p` | LLM command for agent detection |
 | `--agent-confidence` | `0.7` | Minimum confidence threshold for agent results (0.0-1.0) |
 | `--no-agent` | `false` | Skip agent rules (AST-only detection) |
+| `-l, --language` | — | Language filter: `rust`, `shell`, or `go` (scan only the specified language) |
 
 ## Inline Suppression (`smell-allow`)
 
