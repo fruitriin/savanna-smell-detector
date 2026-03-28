@@ -4,6 +4,8 @@ Test smell detector for multiple languages — **Can you say the same in front o
 
 Inspired by [savanna-maven-plugin](https://github.com/kawasima/savanna-maven-plugin).
 
+> [日本語版はこちら](./README.ja.md)
+
 ## What is this?
 
 A CLI tool that detects test code anti-patterns ("test smells") using AST analysis and optional LLM-based detection. Designed to integrate with CI pipelines and LLM-based auto-fix workflows.
