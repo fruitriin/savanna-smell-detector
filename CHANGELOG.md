@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Python 対応** — tree-sitter による Python テストスメル検出
+  - pytest / unittest 両対応（`def test_*` 関数、`TestCase` メソッド、`async def` 含む）
+  - スキップ検出: `@pytest.mark.skip(if)` / `@pytest.mark.xfail` / `@unittest.skip` / `self.skipTest` / `pytest.skip`（クラスレベルデコレーターは全メソッドに継承）
+  - アサーション認識: 素の `assert`、`self.assert*`、`pytest.raises`/`warns`、mock の `assert_called*`、`raise AssertionError`、ヒューリスティックヘルパー
+  - docstring を Giant Test の行数カウントから除外
+  - Commented-Out Test: `# def test_xxx():` パターンを検出
+- **Go 対応** (#15) — tree-sitter AST による Go テストスメル検出、`--language` オプション
+
+### Fixed
+
+- ディレクトリスキャンでテストファイルが1つも見つからない問題を修正 — glob クレートが `{rs,sh}` 形式のブレース展開に非対応のため、拡張子ごとにパターンを生成するように変更
+
 ## [0.3.0] - 2026-03-12
 
 ### Added

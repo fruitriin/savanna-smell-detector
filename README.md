@@ -29,7 +29,7 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 
 ## Features
 
-- **Multi-language support** — Rust (`syn`), Go (`tree-sitter`), Shell/Bash/Bats (regex) with `--language` filter
+- **Multi-language support** — Rust (`syn`), Go (`tree-sitter`), Python (`tree-sitter`), Shell/Bash/Bats (regex) with `--language` filter
 - **AST-based detection** — Accurate analysis with language-aware idiom recognition (e.g. Go's `if err != nil { t.Fatal }`)
 - **LLM agent detection** — Optional Phase 2 detection using LLM-based rules
 - **CI-friendly** — JSON output (with severity) + `--fail-on-smell` exit code control + severity filtering
@@ -45,30 +45,30 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 | Rust | `syn` (AST) | Available |
 | Shell / Bash / Bats | regex | Available |
 | Go | tree-sitter (AST) | Available |
+| Python | tree-sitter (AST) | Available |
 | TypeScript | — | Planned |
-| Python | — | Planned |
 | Java | — | Planned |
 
 ## Detected Smells
 
 ### Phase 1: AST-based Detection
 
-| Smell | Severity | Rust | Shell | Go | Description |
-|-------|----------|------|-------|-----|-------------|
-| Empty Test | 5 | ✅ | ✅ | ✅ | Test method with no body |
-| No Test | 5 | ✅ | ✅ | ✅ | Source file with no test functions |
-| Missing Assertion | 4 | ✅ | ✅ | ✅ | Test without any assertions (Go: `Benchmark*`/`Example*` excluded; custom helpers recognized) |
-| Silent Skip | 4 | ✅ | ✅ | ✅ | Conditional early return at the start of a test |
-| Sleepy Test | 3 | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` |
-| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching (Go: `if cond { t.Fatal }` assertion idioms excluded) |
-| Fragile Test | 3 | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
-| Giant Test | 3 | ✅ | ✅ | ✅ | Test function exceeding 50 lines (Go: table definitions excluded from count) |
-| Commented-Out Test | 3 | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, etc.) |
-| Ignored Test | 2 | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` without a reason |
-| Assertion Roulette (Strict) | 2 | ✅ | — | — | Multiple `assert!` without messages (Rust-specific: `assert!` vs `assert_eq!` distinction) |
-| Magic Number Test | 2 | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
-| Assertion Roulette | 1 | ✅ | — | ✅ | Multiple assertions without messages (Go: testify msgless detection via arg count) |
-| Redundant Print | 1 | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`/`fmt.Println`; Go: `t.Log` excluded — `-v` only) |
+| Smell | Severity | Rust | Shell | Go | Python | Description |
+|-------|----------|------|-------|-----|--------|-------------|
+| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | Test method with no body |
+| No Test | 5 | ✅ | ✅ | ✅ | ✅ | Source file with no test functions |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | Test without any assertions (Go: `Benchmark*`/`Example*` excluded; custom helpers recognized) |
+| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | Conditional early return at the start of a test |
+| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` / `time.sleep()` |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching (Go: `if cond { t.Fatal }` assertion idioms excluded) |
+| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
+| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | Test function exceeding 50 lines (Go: table definitions excluded; Python: docstrings excluded) |
+| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, `# def test_xxx`, etc.) |
+| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` without a reason |
+| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | Multiple `assert!` without messages (Rust-specific: `assert!` vs `assert_eq!` distinction) |
+| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
+| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | Multiple assertions without messages (Go: testify msgless detection via arg count) |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`/`fmt.Println`/`print()`; Go: `t.Log` excluded — `-v` only) |
 
 **Legend:** ✅ = implemented, — = not applicable or not yet implemented
 
@@ -81,6 +81,17 @@ The Go parser uses [tree-sitter](https://tree-sitter.github.io/) for accurate AS
 - **Table definition exclusion** — `[]struct{...}{...}` literal definitions (5+ lines) are excluded from Giant Test line counts
 - **Benchmark/Example exclusion** — `Benchmark*` and `Example*` functions are excluded from Missing Assertion (benchmarks don't need assertions; examples use `// Output:` comments)
 - **`t.Log` exclusion** — `t.Log`/`t.Logf` are excluded from Redundant Print (only shown with `go test -v`, unlike `fmt.Println`)
+
+### Python-specific Intelligence
+
+The Python parser uses tree-sitter and supports both **pytest** and **unittest** conventions:
+
+- **Test discovery** — `def test_*` functions (module-level and class methods), including `async def`. Only files whose name contains `test` are scanned (`test_*.py`, `*_test.py`, `tests.py`, etc.)
+- **Skip detection** — `@pytest.mark.skip(if)`, `@pytest.mark.xfail`, `@unittest.skip`, `self.skipTest(...)`, `pytest.skip(...)`, and class-level skip decorators (all methods inherit the skip)
+- **Assertion recognition** — bare `assert`, `self.assert*`/`self.fail`, `pytest.raises`/`pytest.warns`, mock's `assert_called*`, and heuristic helpers (`assert_array_equal`, `check_*`, `verify_*`, etc.). `raise AssertionError` also counts
+- **Assertion Roulette** — bare `assert x == y` without a `, "message"` counts as msgless (pytest shows values on failure, so severity stays at 1)
+- **Docstring exclusion** — docstrings don't count toward Giant Test line counts, and a docstring-only test is still an Empty Test
+- **Fragile timing** — `time.time()`/`time.monotonic()`/`datetime.now()` combined with `sleep` triggers Fragile Test
 
 ### Phase 2: LLM Agent Detection (Optional)
 
@@ -139,7 +150,7 @@ agent-confidence = 0.7
 # File glob pattern
 glob = "**/*.rs"
 
-# Language filter (rust, shell, go)
+# Language filter (rust, shell, go, python)
 language = "rust"
 ```
 
@@ -174,6 +185,9 @@ savanna-smell-detector . --assertion-roulette-threshold 4
 
 # Scan only Go test files
 savanna-smell-detector . --language go
+
+# Scan only Python test files
+savanna-smell-detector . --language python
 
 # Show suppressed smells
 savanna-smell-detector . --show-suppressed
@@ -212,7 +226,7 @@ savanna-smell-detector . --agent-rules rules/ --no-agent
 | `--llm-command` | `claude -p` | LLM command for agent detection |
 | `--agent-confidence` | `0.7` | Minimum confidence threshold for agent results (0.0-1.0) |
 | `--no-agent` | `false` | Skip agent rules (AST-only detection) |
-| `-l, --language` | — | Language filter: `rust`, `shell`, or `go` (scan only the specified language) |
+| `-l, --language` | — | Language filter: `rust`, `shell`, `go`, or `python` (scan only the specified language) |
 
 ## Inline Suppression (`smell-allow`)
 
@@ -336,7 +350,8 @@ src/
 ├── languages/           # Language parsers (extension point)
 │   ├── rust.rs          # Rust AST analysis via syn
 │   ├── shell.rs         # Shell/Bash/Bats regex-based analysis
-│   └── go.rs            # Go AST analysis via tree-sitter
+│   ├── go.rs            # Go AST analysis via tree-sitter
+│   └── python.rs        # Python AST analysis via tree-sitter (pytest / unittest)
 └── reporters/           # Output formats
     ├── console.rs       # Colored console with severity bars
     ├── json.rs          # Structured JSON for CI/LLM

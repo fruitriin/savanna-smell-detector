@@ -18,6 +18,7 @@ impl SmellDetector for CommentedOutTestDetector {
             "rust" => detect_rust(source, &test_file.path),
             "go" => detect_go(source, &test_file.path),
             "shell" => detect_shell(source, &test_file.path),
+            "python" => detect_python(source, &test_file.path),
             _ => Vec::new(),
         }
     }
@@ -71,6 +72,22 @@ fn detect_shell(source: &str, path: &str) -> Vec<TestSmell> {
     let mut results = Vec::new();
     for (i, line) in source.lines().enumerate() {
         if pattern_bats.is_match(line) || pattern_sh.is_match(line) {
+            results.push(TestSmell::new(
+                SmellType::CommentedOutTest,
+                path,
+                i + 1,
+                None,
+            ));
+        }
+    }
+    results
+}
+
+fn detect_python(source: &str, path: &str) -> Vec<TestSmell> {
+    let pattern = Regex::new(r"^\s*#\s*(async\s+)?def\s+test\w*\s*\(").unwrap();
+    let mut results = Vec::new();
+    for (i, line) in source.lines().enumerate() {
+        if pattern.is_match(line) {
             results.push(TestSmell::new(
                 SmellType::CommentedOutTest,
                 path,
@@ -226,8 +243,33 @@ test_real() {
 // #[test]
 fn something() {}
 "#;
-        let tf_unknown = make_test_file("python", source_unknown);
+        let tf_unknown = make_test_file("ruby", source_unknown);
         let smells_unknown = detector.detect(&tf_unknown);
         assert_eq!(smells_unknown.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_python_commented_test() {
+        let source = r#"
+import unittest
+
+def test_real():
+    assert True
+
+# def test_commented_out():
+#     assert 1 == 1
+
+# async def test_async_commented():
+#     assert True
+
+# コメント内で test という単語に触れているだけの行
+# this line just mentions def and test but no function
+"#;
+        let tf = make_test_file("python", source);
+        let detector = CommentedOutTestDetector;
+        let smells = detector.detect(&tf);
+        assert_eq!(smells.len(), 2);
+        assert_eq!(smells[0].line, 7);
+        assert_eq!(smells[1].line, 10);
     }
 }

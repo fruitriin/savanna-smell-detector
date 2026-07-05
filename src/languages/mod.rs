@@ -1,8 +1,10 @@
 mod go;
+mod python;
 mod rust;
 mod shell;
 
 pub use go::GoParser;
+pub use python::PythonParser;
 pub use rust::RustParser;
 pub use shell::ShellParser;
 

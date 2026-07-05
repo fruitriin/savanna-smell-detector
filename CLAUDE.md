@@ -46,7 +46,8 @@ src/
 ├── languages/           # 言語パーサー（拡張ポイント）
 │   ├── rust.rs          # syn による Rust AST 解析
 │   ├── shell.rs         # Shell/Bash/Bats regex ベース解析
-│   └── go.rs            # Go AST 解析 (tree-sitter)
+│   ├── go.rs            # Go AST 解析 (tree-sitter)
+│   └── python.rs        # Python AST 解析 (tree-sitter, pytest/unittest)
 └── reporters/           # 出力形式
     ├── console.rs       # 色付きコンソール + 🦁
     └── json.rs          # CI/LLM連携用 JSON

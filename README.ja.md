@@ -29,7 +29,7 @@
 
 ## 特徴
 
-- **多言語対応** — Rust (`syn`)、Go (`tree-sitter`)、Shell/Bash/Bats (regex)。`--language` でフィルタ可能
+- **多言語対応** — Rust (`syn`)、Go (`tree-sitter`)、Python (`tree-sitter`)、Shell/Bash/Bats (regex)。`--language` でフィルタ可能
 - **AST ベースの検出** — 言語固有のイディオムを理解した正確な解析（例: Go の `if err != nil { t.Fatal }` を除外）
 - **LLM エージェント検出** — Markdown ルールによるオプショナルな Phase 2 検出
 - **CI フレンドリー** — JSON 出力（severity 付き）+ `--fail-on-smell` + severity フィルタリング
@@ -45,30 +45,30 @@
 | Rust | `syn` (AST) | 対応済み |
 | Shell / Bash / Bats | regex | 対応済み |
 | Go | tree-sitter (AST) | 対応済み |
+| Python | tree-sitter (AST) | 対応済み |
 | TypeScript | — | 予定 |
-| Python | — | 予定 |
 | Java | — | 予定 |
 
 ## 検出するスメル
 
 ### Phase 1: AST ベース検出
 
-| スメル | 重要度 | Rust | Shell | Go | 説明 |
-|--------|--------|------|-------|-----|------|
-| Empty Test | 5 | ✅ | ✅ | ✅ | ボディが空のテスト |
-| No Test | 5 | ✅ | ✅ | ✅ | テスト関数がないファイル |
-| Missing Assertion | 4 | ✅ | ✅ | ✅ | アサーションのないテスト（Go: `Benchmark*`/`Example*` 除外、カスタムヘルパー認識） |
-| Silent Skip | 4 | ✅ | ✅ | ✅ | テスト先頭の条件付き early return |
-| Sleepy Test | 3 | ✅ | ✅ | ✅ | `sleep()` / `time.Sleep()` の使用 |
-| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | `if`/`match`/`switch` 分岐（Go: `if cond { t.Fatal }` アサーションイディオムは除外） |
-| Fragile Test | 3 | ✅ | ✅ | ✅ | `sleep()` と時間 API の併用（`Duration`/`timeout`/`context.WithTimeout` 等） |
-| Giant Test | 3 | ✅ | ✅ | ✅ | 50行を超えるテスト関数（Go: テーブル定義は行数から除外） |
-| Commented-Out Test | 3 | ✅ | ✅ | ✅ | コメントアウトされたテスト（`// #[test]`、`// func TestXxx`、`# @test` 等） |
-| Ignored Test | 2 | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` |
-| Assertion Roulette (Strict) | 2 | ✅ | — | — | メッセージなし `assert!` の複数使用（Rust 固有: `assert!` vs `assert_eq!` の区別） |
-| Magic Number Test | 2 | ✅ | ✅ | ✅ | アサーション内の説明なし数値リテラル（ホワイトリスト: 0, 1, -1, 2） |
-| Assertion Roulette | 1 | ✅ | — | ✅ | メッセージなしアサーションの複数使用（Go: testify 引数カウントで判定） |
-| Redundant Print | 1 | ✅ | ✅ | ✅ | テスト内のデバッグ出力（`println!`/`fmt.Println`。Go: `t.Log` は除外 — `-v` 時のみ表示） |
+| スメル | 重要度 | Rust | Shell | Go | Python | 説明 |
+|--------|--------|------|-------|-----|--------|------|
+| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | ボディが空のテスト |
+| No Test | 5 | ✅ | ✅ | ✅ | ✅ | テスト関数がないファイル |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | アサーションのないテスト（Go: `Benchmark*`/`Example*` 除外、カスタムヘルパー認識） |
+| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | テスト先頭の条件付き early return |
+| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | `sleep()` / `time.Sleep()` / `time.sleep()` の使用 |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` 分岐（Go: `if cond { t.Fatal }` アサーションイディオムは除外） |
+| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | `sleep()` と時間 API の併用（`Duration`/`timeout`/`context.WithTimeout` 等） |
+| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | 50行を超えるテスト関数（Go: テーブル定義除外、Python: docstring 除外） |
+| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | コメントアウトされたテスト（`// #[test]`、`// func TestXxx`、`# @test`、`# def test_xxx` 等） |
+| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` |
+| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | メッセージなし `assert!` の複数使用（Rust 固有: `assert!` vs `assert_eq!` の区別） |
+| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | アサーション内の説明なし数値リテラル（ホワイトリスト: 0, 1, -1, 2） |
+| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | メッセージなしアサーションの複数使用（Go: testify 引数カウントで判定） |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | テスト内のデバッグ出力（`println!`/`fmt.Println`/`print()`。Go: `t.Log` は除外 — `-v` 時のみ表示） |
 
 **凡例:** ✅ = 実装済み、— = 該当なし or 未実装
 
@@ -81,6 +81,17 @@ Go パーサーは [tree-sitter](https://tree-sitter.github.io/) による正確
 - **テーブル定義除外** — `[]struct{...}{...}` リテラル定義（5行以上）を Giant Test の行数カウントから除外
 - **Benchmark/Example 除外** — `Benchmark*`/`Example*` 関数を Missing Assertion から除外（ベンチマークにアサーションは不要、Example は `// Output:` コメントが実質アサーション）
 - **`t.Log` 除外** — `t.Log`/`t.Logf` を Redundant Print から除外（`go test -v` 時のみ表示で、`fmt.Println` とは別物）
+
+### Python 固有のインテリジェンス
+
+Python パーサーは tree-sitter を使用し、**pytest** と **unittest** の両方の規約に対応します:
+
+- **テスト発見** — モジュールレベル・クラスメソッドの `def test_*`（`async def` 含む）。ファイル名に `test` を含むファイルのみスキャン（`test_*.py`、`*_test.py`、`tests.py` 等）
+- **スキップ検出** — `@pytest.mark.skip(if)`、`@pytest.mark.xfail`、`@unittest.skip`、`self.skipTest(...)`、`pytest.skip(...)`。クラスレベルのスキップデコレーターは全メソッドに継承
+- **アサーション認識** — 素の `assert`、`self.assert*`/`self.fail`、`pytest.raises`/`pytest.warns`、mock の `assert_called*`、ヒューリスティックヘルパー（`assert_array_equal`、`check_*`、`verify_*` 等）。`raise AssertionError` もカウント
+- **Assertion Roulette** — `, "メッセージ"` のない素の `assert x == y` をメッセージなしと判定（pytest は失敗時に値を表示するため severity 1 のまま）
+- **docstring 除外** — docstring は Giant Test の行数カウントから除外。docstring だけのテストは Empty Test と判定
+- **時間依存の検出** — `time.time()`/`time.monotonic()`/`datetime.now()` と `sleep` の併用で Fragile Test
 
 ### Phase 2: LLM エージェント検出（オプション）
 
@@ -139,7 +150,7 @@ agent-confidence = 0.7
 # ファイル glob パターン
 glob = "**/*.rs"
 
-# 言語フィルタ（rust, shell, go）
+# 言語フィルタ（rust, shell, go, python）
 language = "rust"
 ```
 
@@ -174,6 +185,9 @@ savanna-smell-detector . --assertion-roulette-threshold 4
 
 # Go のテストファイルのみスキャン
 savanna-smell-detector . --language go
+
+# Python のテストファイルのみスキャン
+savanna-smell-detector . --language python
 
 # 抑制されたスメルを表示
 savanna-smell-detector . --show-suppressed
@@ -212,7 +226,7 @@ savanna-smell-detector . --agent-rules rules/ --no-agent
 | `--llm-command` | `claude -p` | Agent 検出に使う LLM コマンド |
 | `--agent-confidence` | `0.7` | Agent 結果の最小信頼度閾値（0.0-1.0） |
 | `--no-agent` | `false` | Agent ルールをスキップ（AST のみ） |
-| `-l, --language` | — | 言語フィルタ: `rust`, `shell`, `go` |
+| `-l, --language` | — | 言語フィルタ: `rust`, `shell`, `go`, `python` |
 
 ## インライン抑制（`smell-allow`）
 
@@ -336,7 +350,8 @@ src/
 ├── languages/           # 言語パーサー（拡張ポイント）
 │   ├── rust.rs          # Rust AST 解析 (syn)
 │   ├── shell.rs         # Shell/Bash/Bats regex ベース解析
-│   └── go.rs            # Go AST 解析 (tree-sitter)
+│   ├── go.rs            # Go AST 解析 (tree-sitter)
+│   └── python.rs        # Python AST 解析 (tree-sitter, pytest / unittest)
 └── reporters/           # 出力形式
     ├── console.rs       # 色付きコンソール + severity バー
     ├── json.rs          # CI/LLM 連携用 JSON
