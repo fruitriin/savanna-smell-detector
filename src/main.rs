@@ -432,37 +432,35 @@ fn collect_files(
 ) -> Vec<(PathBuf, usize)> {
     let mut results = Vec::new();
 
-    let pattern = if let Some(g) = glob_pattern {
+    let patterns: Vec<String> = if let Some(g) = glob_pattern {
         if path.is_dir() {
-            format!("{}/{}", path.display(), g)
+            vec![format!("{}/{}", path.display(), g)]
         } else {
-            g.clone()
+            vec![g.clone()]
         }
     } else if path.is_file() {
         return find_parser_for_file(path, parsers)
             .map(|idx| vec![(path.clone(), idx)])
             .unwrap_or_default();
     } else {
-        {
-            // 全登録パーサーの拡張子から glob パターンを動的生成
-            let exts: Vec<&str> = parsers.iter()
-                .flat_map(|p| p.extensions().iter().copied())
-                .collect();
-            if exts.len() == 1 {
-                format!("{}/**/*.{}", path.display(), exts[0])
-            } else {
-                format!("{}/**/*.{{{}}}", path.display(), exts.join(","))
-            }
-        }
+        // glob クレートは {a,b} のブレース展開に非対応のため、拡張子ごとにパターンを生成
+        parsers.iter()
+            .flat_map(|p| p.extensions().iter().copied())
+            .map(|ext| format!("{}/**/*.{}", path.display(), ext))
+            .collect()
     };
 
-    if let Ok(entries) = glob::glob(&pattern) {
-        for entry in entries.flatten() {
-            if let Some(idx) = find_parser_for_file(&entry, parsers) {
-                results.push((entry, idx));
+    for pattern in &patterns {
+        if let Ok(entries) = glob::glob(pattern) {
+            for entry in entries.flatten() {
+                if let Some(idx) = find_parser_for_file(&entry, parsers) {
+                    results.push((entry, idx));
+                }
             }
         }
     }
+    results.sort();
+    results.dedup();
 
     results
 }
