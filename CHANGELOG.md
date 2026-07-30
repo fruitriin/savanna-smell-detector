@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-31
+
+### Added
+
+- **Swift 対応** — tree-sitter による Swift テストスメル検出
+  - **Swift Testing / XCTest の両対応** — Swift Testing は `@Test` 属性で判定する（名前規約に依存しない）。トップレベル・`struct`/`class`/`enum`/`extension` のどこに置かれたテストも拾う
+  - XCTest は型のボディ内の引数なし `func test*`。ただし XCTest を実際に使っているファイルのみを対象とし、同居するヘルパー型（モック等）をテストと誤認しない
+  - スキップ検出: `@Test(.disabled(...))` / `@Suite(.disabled(...))`（配下の全テストに継承）/ `throw XCTSkip(...)`
+  - アサーション認識: `#expect` / `#require` / `Issue.record` / `withKnownIssue` / `confirmation` / `XCTAssert*` / `XCTFail` / `XCTUnwrap`
+  - アサーションの重み分け: 値を表示する `#expect`・`XCTAssertEqual` は Assertion Roulette（重要度1）、真偽値しか分からない `XCTAssertTrue`・`XCTFail` は Strict（重要度2）
+  - Sleepy Test: `Thread.sleep` / `Task.sleep` / `usleep` / `RunLoop.current.run(until:)`
+  - Commented-Out Test: `// @Test func ...` / `// func testXxx()` パターンを検出
+- **`flavor` — テストの流儀に応じたメッセージ切り替え** — `TestFile` に `flavor` フィールドを追加。`XCUIApplication` を使うファイルは `xcuitest` と判定し、E2E 向けの文面に差し替える。E2E で待つこと自体は避けられないため、一般論で黙らせるのではなく直し方（`waitForNonExistence(timeout:)`）を名指しする。`flavor` 未指定時は言語名がキーになるため、言語固有の言い回し（Swift の Silent Skip では `#[ignore]` ではなく `@Test(.disabled(...))` / `XCTSkip` を案内）にも使える
+
+### Changed
+
+- **Silent Skip（Swift のみ）** — 「先頭3文以内の early return」ではなく本文全体を走査する。Swift の `guard ... else { return }` は位置に関係なく必ずそこで脱出するため。`else { throw XCTSkip(...) }` や `{ XCTFail(...); return }` は正しい対処として除外する
+- **Magic Number（Swift のみ）** — `timeout` / `forTimeInterval` / `nanoseconds` / `seconds` / `until` / `deadline` ラベルの引数は対象外。引数ラベルが既にその数値の意味を説明しており、中身も仕様ではなく環境チューニングの値であるため
+- **Conditional Test Logic（Swift のみ）** — `guard` は条件分岐に数えない。Swift の `guard` は分岐というより前提条件の表明であり、黙って脱出するものは Silent Skip 側で拾う
+
 ## [0.4.0] - 2026-07-05
 
 ### Added
