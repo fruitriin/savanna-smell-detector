@@ -21,6 +21,7 @@ impl LanguageParser for ShellParser {
             language: "shell".to_string(),
             test_functions,
             source: Some(source.to_string()),
+            flavor: None,
         })
     }
 }

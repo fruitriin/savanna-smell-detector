@@ -30,6 +30,7 @@ impl LanguageParser for GoParser {
             language: "go".to_string(),
             test_functions,
             source: Some(source.to_string()),
+            flavor: None,
         })
     }
 }

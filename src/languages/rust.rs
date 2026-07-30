@@ -24,6 +24,7 @@ impl LanguageParser for RustParser {
             language: "rust".to_string(),
             test_functions: visitor.test_functions,
             source: Some(source.to_string()),
+            flavor: None,
         })
     }
 }

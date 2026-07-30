@@ -29,7 +29,7 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 
 ## Features
 
-- **Multi-language support** — Rust (`syn`), Go (`tree-sitter`), Python (`tree-sitter`), Shell/Bash/Bats (regex) with `--language` filter
+- **Multi-language support** — Rust (`syn`), Go (`tree-sitter`), Python (`tree-sitter`), Swift (`tree-sitter`), Shell/Bash/Bats (regex) with `--language` filter
 - **AST-based detection** — Accurate analysis with language-aware idiom recognition (e.g. Go's `if err != nil { t.Fatal }`)
 - **LLM agent detection** — Optional Phase 2 detection using LLM-based rules
 - **CI-friendly** — JSON output (with severity) + `--fail-on-smell` exit code control + severity filtering
@@ -46,6 +46,7 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 | Shell / Bash / Bats | regex | Available |
 | Go | tree-sitter (AST) | Available |
 | Python | tree-sitter (AST) | Available |
+| Swift | tree-sitter (AST) | Available |
 | TypeScript | — | Planned |
 | Java | — | Planned |
 
@@ -53,22 +54,22 @@ A CLI tool that detects test code anti-patterns ("test smells") using AST analys
 
 ### Phase 1: AST-based Detection
 
-| Smell | Severity | Rust | Shell | Go | Python | Description |
-|-------|----------|------|-------|-----|--------|-------------|
-| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | Test method with no body |
-| No Test | 5 | ✅ | ✅ | ✅ | ✅ | Source file with no test functions |
-| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | Test without any assertions (Go: `Benchmark*`/`Example*` excluded; custom helpers recognized) |
-| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | Conditional early return at the start of a test |
-| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` / `time.sleep()` |
-| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching (Go: `if cond { t.Fatal }` assertion idioms excluded) |
-| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
-| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | Test function exceeding 50 lines (Go: table definitions excluded; Python: docstrings excluded) |
-| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, `# def test_xxx`, etc.) |
-| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` without a reason |
-| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | Multiple `assert!` without messages (Rust-specific: `assert!` vs `assert_eq!` distinction) |
-| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
-| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | Multiple assertions without messages (Go: testify msgless detection via arg count) |
-| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`/`fmt.Println`/`print()`; Go: `t.Log` excluded — `-v` only) |
+| Smell | Severity | Rust | Shell | Go | Python | Swift | Description |
+|-------|----------|------|-------|-----|--------|-------|-------------|
+| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | ✅ | Test method with no body |
+| No Test | 5 | ✅ | ✅ | ✅ | ✅ | ✅ | Source file with no test functions |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | ✅ | Test without any assertions (Go: `Benchmark*`/`Example*` excluded; custom helpers recognized) |
+| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | ✅ | Conditional early return that leaves the test (Swift: `guard ... else { return }` anywhere in the body) |
+| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | Test using `sleep()` / `time.Sleep()` / `time.sleep()` / `Thread.sleep` / `Task.sleep` |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` branching (Go: `if cond { t.Fatal }` assertion idioms excluded) |
+| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | Tests combining `sleep()` with time APIs (`Duration`/`timeout`/`context.WithTimeout`/etc.) |
+| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | Test function exceeding 50 lines (Go: table definitions excluded; Python: docstrings excluded) |
+| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | Commented-out test markers (`// #[test]`, `// func TestXxx`, `# @test`, `# def test_xxx`, etc.) |
+| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` / `@Test(.disabled)` / `XCTSkip` |
+| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | ✅ | Multiple boolean-only assertions without messages (Rust: `assert!`; Swift: `XCTAssertTrue`/`XCTFail`) |
+| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | Unexplained numeric literals in assertions (whitelist: 0, 1, -1, 2 by default) |
+| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | ✅ | Multiple value-showing assertions without messages (Swift: `#expect` / `XCTAssertEqual`) |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | Debug prints left in tests (`println!`/`fmt.Println`/`print()`/`NSLog`; Go: `t.Log` excluded — `-v` only) |
 
 **Legend:** ✅ = implemented, — = not applicable or not yet implemented
 
@@ -92,6 +93,19 @@ The Python parser uses tree-sitter and supports both **pytest** and **unittest**
 - **Assertion Roulette** — bare `assert x == y` without a `, "message"` counts as msgless (pytest shows values on failure, so severity stays at 1)
 - **Docstring exclusion** — docstrings don't count toward Giant Test line counts, and a docstring-only test is still an Empty Test
 - **Fragile timing** — `time.time()`/`time.monotonic()`/`datetime.now()` combined with `sleep` triggers Fragile Test
+
+### Swift-specific Intelligence
+
+The Swift parser uses tree-sitter and handles both **Swift Testing** (`@Test`) and **XCTest** conventions:
+
+- **Attribute-based discovery** — Swift Testing tests are found by the `@Test` attribute, not by name. `@Test func nudgesAfterScheduledTime()` is a test even though it doesn't start with `test`. Works at top level and inside `struct`/`class`/`enum`/`extension`
+- **XCTest discovery** — zero-argument `func test*` methods inside a type, only in files that actually use XCTest. Helper types living in the same file (`MockURLProtocol`, in-memory stores) are not mistaken for tests
+- **Skip detection** — `@Test(.disabled(...))`, `@Suite(.disabled(...))` (inherited by every test in the suite), and `throw XCTSkip(...)`
+- **Silent Skip** — `guard ... else { return }` anywhere in the body, not just at the top. `else { throw XCTSkip(...) }` and `{ XCTFail(...); return }` are correct and excluded. `guard` is not counted as Conditional Test Logic — in Swift it states a precondition rather than branching
+- **Assertion tiering** — `#expect`/`#require` and `XCTAssertEqual` show values on failure (severity 1); `XCTAssertTrue`/`XCTFail` only show a boolean (severity 2)
+- **Fragile timing** — a bare `Date()` used as fixture filler is ignored; it only counts when combined with time arithmetic (`addingTimeInterval`, `timeIntervalSince`) or explicit waits
+- **Timeouts are not magic numbers** — `waitForExistence(timeout: 30)` is exempt: the argument label already says what the number means
+- **XCUITest awareness** — files using `XCUIApplication` get E2E-specific wording. Waiting is unavoidable in E2E, so instead of a generic complaint the report names the fix (`waitForNonExistence(timeout:)` instead of a hand-rolled `Thread.sleep` polling loop)
 
 ### Phase 2: LLM Agent Detection (Optional)
 
@@ -150,7 +164,7 @@ agent-confidence = 0.7
 # File glob pattern
 glob = "**/*.rs"
 
-# Language filter (rust, shell, go, python)
+# Language filter (rust, shell, go, python, swift)
 language = "rust"
 ```
 
@@ -189,6 +203,9 @@ savanna-smell-detector . --language go
 # Scan only Python test files
 savanna-smell-detector . --language python
 
+# Scan only Swift test files
+savanna-smell-detector . --language swift
+
 # Show suppressed smells
 savanna-smell-detector . --show-suppressed
 
@@ -226,7 +243,7 @@ savanna-smell-detector . --agent-rules rules/ --no-agent
 | `--llm-command` | `claude -p` | LLM command for agent detection |
 | `--agent-confidence` | `0.7` | Minimum confidence threshold for agent results (0.0-1.0) |
 | `--no-agent` | `false` | Skip agent rules (AST-only detection) |
-| `-l, --language` | — | Language filter: `rust`, `shell`, `go`, or `python` (scan only the specified language) |
+| `-l, --language` | — | Language filter: `rust`, `shell`, `go`, `python`, or `swift` (scan only the specified language) |
 
 ## Inline Suppression (`smell-allow`)
 
@@ -351,7 +368,8 @@ src/
 │   ├── rust.rs          # Rust AST analysis via syn
 │   ├── shell.rs         # Shell/Bash/Bats regex-based analysis
 │   ├── go.rs            # Go AST analysis via tree-sitter
-│   └── python.rs        # Python AST analysis via tree-sitter (pytest / unittest)
+│   ├── python.rs        # Python AST analysis via tree-sitter (pytest / unittest)
+│   └── swift.rs         # Swift AST analysis via tree-sitter (Swift Testing / XCTest)
 └── reporters/           # Output formats
     ├── console.rs       # Colored console with severity bars
     ├── json.rs          # Structured JSON for CI/LLM

@@ -7,7 +7,7 @@ mod reporters;
 
 use agent::{AgentTestSmell, load_rules, run_agent_detection};
 use clap::Parser;
-use languages::{GoParser, LanguageParser, PythonParser, RustParser, ShellParser};
+use languages::{GoParser, LanguageParser, PythonParser, RustParser, ShellParser, SwiftParser};
 use reporters::{ConsoleReporter, MarkdownReporter, SmellReporter};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -74,7 +74,7 @@ struct Cli {
     #[arg(long, default_value_t = false)]
     show_suppressed: bool,
 
-    /// Language filter (e.g. "rust", "go", "shell"). Only scan files of the specified language.
+    /// Language filter (e.g. "rust", "go", "shell", "python", "swift"). Only scan files of the specified language.
     #[arg(short, long)]
     language: Option<String>,
 }
@@ -170,6 +170,7 @@ fn main() {
         Box::new(ShellParser),
         Box::new(GoParser),
         Box::new(PythonParser),
+        Box::new(SwiftParser),
     ];
 
     let parsers: Vec<Box<dyn LanguageParser>> = if let Some(ref lang) = language {
@@ -181,7 +182,7 @@ fn main() {
     };
 
     if parsers.is_empty() {
-        eprintln!("Unknown language: {:?}. Available: rust, shell, go, python", language.unwrap_or_default());
+        eprintln!("Unknown language: {:?}. Available: rust, shell, go, python, swift", language.unwrap_or_default());
         std::process::exit(1);
     }
 

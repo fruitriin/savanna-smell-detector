@@ -19,6 +19,7 @@ impl SmellDetector for CommentedOutTestDetector {
             "go" => detect_go(source, &test_file.path),
             "shell" => detect_shell(source, &test_file.path),
             "python" => detect_python(source, &test_file.path),
+            "swift" => detect_swift(source, &test_file.path),
             _ => Vec::new(),
         }
     }
@@ -99,6 +100,26 @@ fn detect_python(source: &str, path: &str) -> Vec<TestSmell> {
     results
 }
 
+/// Swift: `// @Test func foo()` / `// func testFoo()` / `// @Test("...")` のコメントアウト
+fn detect_swift(source: &str, path: &str) -> Vec<TestSmell> {
+    let pattern = Regex::new(
+        r#"^\s*//\s*(@Test\b|(@\w+\s+)*(private\s+|public\s+|internal\s+|final\s+)*func\s+test\w*\s*\()"#,
+    )
+    .unwrap();
+    let mut results = Vec::new();
+    for (i, line) in source.lines().enumerate() {
+        if pattern.is_match(line) {
+            results.push(TestSmell::new(
+                SmellType::CommentedOutTest,
+                path,
+                i + 1,
+                None,
+            ));
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,6 +131,7 @@ mod tests {
             language: language.to_string(),
             test_functions: Vec::new(),
             source: Some(source.to_string()),
+            flavor: None,
         }
     }
 

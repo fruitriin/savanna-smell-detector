@@ -29,7 +29,7 @@
 
 ## 特徴
 
-- **多言語対応** — Rust (`syn`)、Go (`tree-sitter`)、Python (`tree-sitter`)、Shell/Bash/Bats (regex)。`--language` でフィルタ可能
+- **多言語対応** — Rust (`syn`)、Go (`tree-sitter`)、Python (`tree-sitter`)、Swift (`tree-sitter`)、Shell/Bash/Bats (regex)。`--language` でフィルタ可能
 - **AST ベースの検出** — 言語固有のイディオムを理解した正確な解析（例: Go の `if err != nil { t.Fatal }` を除外）
 - **LLM エージェント検出** — Markdown ルールによるオプショナルな Phase 2 検出
 - **CI フレンドリー** — JSON 出力（severity 付き）+ `--fail-on-smell` + severity フィルタリング
@@ -46,6 +46,7 @@
 | Shell / Bash / Bats | regex | 対応済み |
 | Go | tree-sitter (AST) | 対応済み |
 | Python | tree-sitter (AST) | 対応済み |
+| Swift | tree-sitter (AST) | 対応済み |
 | TypeScript | — | 予定 |
 | Java | — | 予定 |
 
@@ -53,22 +54,22 @@
 
 ### Phase 1: AST ベース検出
 
-| スメル | 重要度 | Rust | Shell | Go | Python | 説明 |
-|--------|--------|------|-------|-----|--------|------|
-| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | ボディが空のテスト |
-| No Test | 5 | ✅ | ✅ | ✅ | ✅ | テスト関数がないファイル |
-| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | アサーションのないテスト（Go: `Benchmark*`/`Example*` 除外、カスタムヘルパー認識） |
-| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | テスト先頭の条件付き early return |
-| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | `sleep()` / `time.Sleep()` / `time.sleep()` の使用 |
-| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` 分岐（Go: `if cond { t.Fatal }` アサーションイディオムは除外） |
-| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | `sleep()` と時間 API の併用（`Duration`/`timeout`/`context.WithTimeout` 等） |
-| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | 50行を超えるテスト関数（Go: テーブル定義除外、Python: docstring 除外） |
-| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | コメントアウトされたテスト（`// #[test]`、`// func TestXxx`、`# @test`、`# def test_xxx` 等） |
-| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` |
-| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | メッセージなし `assert!` の複数使用（Rust 固有: `assert!` vs `assert_eq!` の区別） |
-| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | アサーション内の説明なし数値リテラル（ホワイトリスト: 0, 1, -1, 2） |
-| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | メッセージなしアサーションの複数使用（Go: testify 引数カウントで判定） |
-| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | テスト内のデバッグ出力（`println!`/`fmt.Println`/`print()`。Go: `t.Log` は除外 — `-v` 時のみ表示） |
+| スメル | 重要度 | Rust | Shell | Go | Python | Swift | 説明 |
+|--------|--------|------|-------|-----|--------|-------|------|
+| Empty Test | 5 | ✅ | ✅ | ✅ | ✅ | ✅ | ボディが空のテスト |
+| No Test | 5 | ✅ | ✅ | ✅ | ✅ | ✅ | テスト関数がないファイル |
+| Missing Assertion | 4 | ✅ | ✅ | ✅ | ✅ | ✅ | アサーションのないテスト（Go: `Benchmark*`/`Example*` 除外、カスタムヘルパー認識） |
+| Silent Skip | 4 | ✅ | ✅ | ✅ | ✅ | ✅ | 黙ってテストを終わらせる条件付き early return（Swift: 本文のどこにある `guard ... else { return }` も対象） |
+| Sleepy Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | `sleep()` / `time.Sleep()` / `time.sleep()` / `Thread.sleep` / `Task.sleep` の使用 |
+| Conditional Test Logic | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | `if`/`match`/`switch` 分岐（Go: `if cond { t.Fatal }` アサーションイディオムは除外） |
+| Fragile Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | `sleep()` と時間 API の併用（`Duration`/`timeout`/`context.WithTimeout` 等） |
+| Giant Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | 50行を超えるテスト関数（Go: テーブル定義除外、Python: docstring 除外） |
+| Commented-Out Test | 3 | ✅ | ✅ | ✅ | ✅ | ✅ | コメントアウトされたテスト（`// #[test]`、`// func TestXxx`、`# @test`、`# def test_xxx` 等） |
+| Ignored Test | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | `#[ignore]` / `skip` / `t.Skip()` / `@pytest.mark.skip` / `@Test(.disabled)` / `XCTSkip` |
+| Assertion Roulette (Strict) | 2 | ✅ | — | — | — | ✅ | 真偽値しか分からないアサーションがメッセージなしで複数（Rust: `assert!`、Swift: `XCTAssertTrue`/`XCTFail`） |
+| Magic Number Test | 2 | ✅ | ✅ | ✅ | ✅ | ✅ | アサーション内の説明なし数値リテラル（ホワイトリスト: 0, 1, -1, 2） |
+| Assertion Roulette | 1 | ✅ | — | ✅ | ✅ | ✅ | 値を表示するアサーションがメッセージなしで複数（Swift: `#expect` / `XCTAssertEqual`） |
+| Redundant Print | 1 | ✅ | ✅ | ✅ | ✅ | ✅ | テスト内のデバッグ出力（`println!`/`fmt.Println`/`print()`/`NSLog`。Go: `t.Log` は除外 — `-v` 時のみ表示） |
 
 **凡例:** ✅ = 実装済み、— = 該当なし or 未実装
 
@@ -92,6 +93,19 @@ Python パーサーは tree-sitter を使用し、**pytest** と **unittest** �
 - **Assertion Roulette** — `, "メッセージ"` のない素の `assert x == y` をメッセージなしと判定（pytest は失敗時に値を表示するため severity 1 のまま）
 - **docstring 除外** — docstring は Giant Test の行数カウントから除外。docstring だけのテストは Empty Test と判定
 - **時間依存の検出** — `time.time()`/`time.monotonic()`/`datetime.now()` と `sleep` の併用で Fragile Test
+
+### Swift 固有のインテリジェンス
+
+Swift パーサーは tree-sitter を使用し、**Swift Testing**（`@Test`）と **XCTest** の両方に対応します:
+
+- **属性ベースのテスト発見** — Swift Testing は名前ではなく `@Test` 属性で判定する。`@Test func nudgesAfterScheduledTime()` は `test` で始まらなくてもテスト。トップレベル・`struct`/`class`/`enum`/`extension` のどこに置かれていても拾う
+- **XCTest のテスト発見** — 型のボディ内にある引数なしの `func test*`。ただし XCTest を実際に使っているファイルのみ。同じファイルに同居するヘルパー型（`MockURLProtocol`、インメモリのストア等）をテストと誤認しない
+- **スキップ検出** — `@Test(.disabled(...))`、`@Suite(.disabled(...))`（配下の全テストに継承）、`throw XCTSkip(...)`
+- **Silent Skip** — 本文の先頭に限らず、どこにある `guard ... else { return }` も対象。`else { throw XCTSkip(...) }` や `{ XCTFail(...); return }` は正しい対処なので除外。`guard` は Conditional Test Logic には数えない（Swift の `guard` は分岐というより前提条件の表明のため）
+- **アサーションの重み分け** — `#expect`/`#require` と `XCTAssertEqual` は失敗時に値を表示するので重要度 1、`XCTAssertTrue`/`XCTFail` は真偽値しか分からないので重要度 2
+- **時間依存の検出** — `createdAt: Date()` のようなフィクスチャの埋め草は対象外。時刻演算（`addingTimeInterval`、`timeIntervalSince`）や明示的な待ちと組み合わさったときだけ Fragile Test
+- **timeout はマジックナンバーではない** — `waitForExistence(timeout: 30)` の 30 は除外する。引数ラベルが既にその数値の意味を説明しているため
+- **XCUITest の文脈を理解する** — `XCUIApplication` を使うファイルでは指摘の文面が E2E 向けに切り替わる。E2E で待つこと自体は仕方ないので、一般論で黙らせるのではなく直し方を名指しする（自前の `Thread.sleep` ポーリングではなく `waitForNonExistence(timeout:)` を使え、など）
 
 ### Phase 2: LLM エージェント検出（オプション）
 
@@ -150,7 +164,7 @@ agent-confidence = 0.7
 # ファイル glob パターン
 glob = "**/*.rs"
 
-# 言語フィルタ（rust, shell, go, python）
+# 言語フィルタ（rust, shell, go, python, swift）
 language = "rust"
 ```
 
@@ -189,6 +203,9 @@ savanna-smell-detector . --language go
 # Python のテストファイルのみスキャン
 savanna-smell-detector . --language python
 
+# Swift のテストファイルのみスキャン
+savanna-smell-detector . --language swift
+
 # 抑制されたスメルを表示
 savanna-smell-detector . --show-suppressed
 
@@ -226,7 +243,7 @@ savanna-smell-detector . --agent-rules rules/ --no-agent
 | `--llm-command` | `claude -p` | Agent 検出に使う LLM コマンド |
 | `--agent-confidence` | `0.7` | Agent 結果の最小信頼度閾値（0.0-1.0） |
 | `--no-agent` | `false` | Agent ルールをスキップ（AST のみ） |
-| `-l, --language` | — | 言語フィルタ: `rust`, `shell`, `go`, `python` |
+| `-l, --language` | — | 言語フィルタ: `rust`, `shell`, `go`, `python`, `swift` |
 
 ## インライン抑制（`smell-allow`）
 
@@ -351,7 +368,8 @@ src/
 │   ├── rust.rs          # Rust AST 解析 (syn)
 │   ├── shell.rs         # Shell/Bash/Bats regex ベース解析
 │   ├── go.rs            # Go AST 解析 (tree-sitter)
-│   └── python.rs        # Python AST 解析 (tree-sitter, pytest / unittest)
+│   ├── python.rs        # Python AST 解析 (tree-sitter, pytest / unittest)
+│   └── swift.rs         # Swift AST 解析 (tree-sitter, Swift Testing / XCTest)
 └── reporters/           # 出力形式
     ├── console.rs       # 色付きコンソール + severity バー
     ├── json.rs          # CI/LLM 連携用 JSON

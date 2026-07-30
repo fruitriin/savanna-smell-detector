@@ -47,7 +47,9 @@ impl SmellDetectorRegistry {
                             continue;
                         }
                     }
-                    results.push(smell);
+                    // flavor 未指定なら言語名をキーにする（言語固有の言い回しに差し替えるため）
+                    let key = file.flavor.as_deref().unwrap_or(file.language.as_str());
+                    results.push(smell.with_flavor(Some(key)));
                 }
             }
         }

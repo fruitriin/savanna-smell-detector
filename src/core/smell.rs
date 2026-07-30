@@ -70,6 +70,30 @@ impl SmellType {
         }
     }
 
+    /// テストの流儀（flavor）に応じた差し替えメッセージ。
+    /// flavor が未指定のときは言語名がキーとして渡される。
+    /// 一般論では通じない文脈（E2E/UI テストなど）で、具体的な代替手段を名指しする。
+    pub fn roar_for_flavor(&self, flavor: Option<&str>) -> Option<&'static str> {
+        match (flavor?, self) {
+            ("swift" | "xcuitest", SmellType::SilentSkip) => Some(
+                "テストが通ったんじゃない、テストが実行されなかっただけだ。条件付きスキップは @Test(.disabled(...)) か throw XCTSkip(...) を使いましょう。",
+            ),
+            ("swift" | "xcuitest", SmellType::MissingAssertion) => Some(
+                "アサーションがないテストは、テストではありません。ただの実行です。#expect / #require で期待を書きましょう。",
+            ),
+            ("xcuitest", SmellType::SleepyTest) => Some(
+                "E2E で待つこと自体は仕方ありません。ですが固定時間の sleep はダメです。waitForExistence(timeout:) / waitForNonExistence(timeout:) で「状態」を待ちましょう。",
+            ),
+            ("xcuitest", SmellType::FragileTest) => Some(
+                "固定 sleep と timeout の併用は、CI の負荷が高い日に裏切ります。sleep を消して、条件待ちの timeout だけに寄せましょう。",
+            ),
+            ("xcuitest", SmellType::ConditionalTestLogic) => Some(
+                "E2E でも分岐はテスト自体のバグの温床です。特に while による自前ポーリングは waitForExistence(timeout:) に置き換えられないか検討しましょう。",
+            ),
+            _ => None,
+        }
+    }
+
     /// kebab-case の名前を返す（smell-allow 用）
     pub fn kebab_name(&self) -> &'static str {
         match self {
@@ -181,6 +205,14 @@ impl TestSmell {
             function_name,
         }
     }
+
+    /// flavor 固有のメッセージがあれば差し替える
+    pub fn with_flavor(mut self, flavor: Option<&str>) -> Self {
+        if let Some(msg) = self.smell_type.roar_for_flavor(flavor) {
+            self.message = msg.to_string();
+        }
+        self
+    }
 }
 
 /// 検出対象のテスト関数情報（言語非依存）
@@ -225,4 +257,7 @@ pub struct TestFile {
     pub test_functions: Vec<TestFunction>,
     /// ソースコードの全文（Commented-Out Test 検出等で使用）
     pub source: Option<String>,
+    /// 同じ言語の中でのテストの流儀（例: "xcuitest"）。
+    /// 一般論のメッセージが通じない文脈で、指摘の文面を切り替えるために使う。
+    pub flavor: Option<String>,
 }
