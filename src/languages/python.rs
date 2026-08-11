@@ -167,16 +167,22 @@ fn analyze_function(
         .take(3)
         .any(|n| contains_kind(n, "return_statement"));
 
+    // 無条件スキップ: ボディ直下の文としての pytest.skip / self.skipTest / raise SkipTest。
+    // if の中などの条件付きスキップは「環境次第で実行されるテスト」なので無視扱いにしない
+    let has_unconditional_skip = statements.iter()
+        .any(|s| is_unconditional_skip_stmt(s, source));
+
     TestFunction {
         name: name.to_string(),
         line,
         body_source,
-        is_ignored: ignored_by_decorator || info.has_skip,
+        is_ignored: ignored_by_decorator || has_unconditional_skip,
         has_assertion: info.assertion_count > 0,
         has_sleep: info.has_sleep,
         has_conditional: info.has_if || info.has_match || info.has_for || info.has_while,
         has_branching: info.has_if || info.has_match,
         has_for_loop: info.has_for,
+        has_while_loop: info.has_while,
         has_assertion_in_loop: info.has_assertion_in_loop,
         has_print: info.has_print,
         is_empty,
@@ -188,6 +194,22 @@ fn analyze_function(
         has_early_return,
         has_timeout_dependency: info.has_timeout_dependency,
         body_line_count,
+    }
+}
+
+/// ボディ直下の文としての無条件スキップ
+/// （pytest.skip / pytest.xfail / pytest.importorskip / self.skipTest / raise SkipTest）か
+fn is_unconditional_skip_stmt(stmt: &Node, source: &[u8]) -> bool {
+    match stmt.kind() {
+        "raise_statement" => node_text(stmt, source).contains("SkipTest"),
+        "expression_statement" => {
+            let text = node_text(stmt, source);
+            text.contains("pytest.skip(")
+                || text.contains("pytest.xfail(")
+                || text.contains("pytest.importorskip(")
+                || text.contains(".skipTest(")
+        }
+        _ => false,
     }
 }
 
@@ -203,7 +225,6 @@ fn is_docstring(stmt: &Node) -> bool {
 struct FunctionInfo {
     assertion_count: usize,
     assertions_without_message: usize,
-    has_skip: bool,
     has_sleep: bool,
     has_print: bool,
     has_if: bool,
@@ -246,10 +267,10 @@ fn walk_statements(node: &Node, source: &[u8], info: &mut FunctionInfo, in_loop:
                 collect_magic_numbers(&child, source, &mut info.magic_numbers);
             }
             "raise_statement" => {
+                // raise SkipTest はここでは扱わない — 無条件スキップ（ボディ直下）のみ
+                // is_unconditional_skip_stmt が is_ignored として拾う
                 let text = node_text(&child, source);
-                if text.contains("SkipTest") {
-                    info.has_skip = true;
-                } else if text.contains("AssertionError") {
+                if text.contains("AssertionError") {
                     info.assertion_count += 1;
                     if in_loop { info.has_assertion_in_loop = true; }
                 }
@@ -352,16 +373,14 @@ fn check_attribute_call(
             if count_call_arguments(call) == 0 {
                 info.assertions_without_message += 1;
             }
-        } else if method == "skipTest" {
-            info.has_skip = true;
         }
+        // self.skipTest は無条件スキップ（ボディ直下）のみ is_unconditional_skip_stmt が拾う
         return;
     }
 
     // pytest.*
     if obj == "pytest" {
         match method {
-            "skip" | "xfail" | "importorskip" => info.has_skip = true,
             "fail" => {
                 info.assertion_count += 1;
                 if in_loop { info.has_assertion_in_loop = true; }
@@ -662,6 +681,30 @@ class TestFoo:
         assert_eq!(fns.len(), 2);
         assert!(fns[0].is_ignored);
         assert!(fns[1].is_ignored);
+    }
+
+    #[test]
+    fn test_conditional_skip_is_not_ignored() {
+        // if の中の skip は「環境次第で実行されるテスト」なので無視扱いにしない
+        let source = r#"
+import sys
+import pytest
+
+def test_conditional_skip():
+    if sys.platform == "win32":
+        pytest.skip("windows では未対応")
+    assert do_something() == 1
+
+class TestFoo:
+    def test_conditional_skip_method(self):
+        if not has_fixture():
+            self.skipTest("フィクスチャなし")
+        self.assertEqual(compute(), 1)
+"#;
+        let fns = parse(source);
+        assert_eq!(fns.len(), 2);
+        assert!(!fns[0].is_ignored);
+        assert!(!fns[1].is_ignored);
     }
 
     #[test]

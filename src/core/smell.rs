@@ -87,9 +87,8 @@ impl SmellType {
             ("xcuitest", SmellType::FragileTest) => Some(
                 "固定 sleep と timeout の併用は、CI の負荷が高い日に裏切ります。sleep を消して、条件待ちの timeout だけに寄せましょう。",
             ),
-            ("xcuitest", SmellType::ConditionalTestLogic) => Some(
-                "E2E でも分岐はテスト自体のバグの温床です。特に while による自前ポーリングは waitForExistence(timeout:) に置き換えられないか検討しましょう。",
-            ),
+            // ConditionalTestLogic の xcuitest 向け文面は、検出根拠（while の有無）で
+            // 出し分けるため ConditionalLogicDetector 側で確定させる
             _ => None,
         }
     }
@@ -206,8 +205,18 @@ impl TestSmell {
         }
     }
 
-    /// flavor 固有のメッセージがあれば差し替える
+    /// 検出器が根拠に応じて文面を確定させる（with_flavor による差し替えの対象外になる）
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = message.into();
+        self
+    }
+
+    /// flavor 固有のメッセージがあれば差し替える。
+    /// 検出器が with_message で文面を確定済みの場合はそちらを優先する
     pub fn with_flavor(mut self, flavor: Option<&str>) -> Self {
+        if self.message != self.smell_type.roar() {
+            return self;
+        }
         if let Some(msg) = self.smell_type.roar_for_flavor(flavor) {
             self.message = msg.to_string();
         }
@@ -229,6 +238,8 @@ pub struct TestFunction {
     pub has_branching: bool,
     /// for ループがあるか
     pub has_for_loop: bool,
+    /// while / repeat-while / loop があるか（自前ポーリングの兆候）
+    pub has_while_loop: bool,
     /// for ループ内にアサーションがあるか（テーブル駆動テストの兆候）
     pub has_assertion_in_loop: bool,
     pub has_print: bool,

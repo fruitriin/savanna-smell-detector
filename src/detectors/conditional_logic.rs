@@ -8,6 +8,7 @@ impl SmellDetector for ConditionalLogicDetector {
     }
 
     fn detect(&self, test_file: &TestFile) -> Vec<TestSmell> {
+        let is_xcuitest = test_file.flavor.as_deref() == Some("xcuitest");
         test_file
             .test_functions
             .iter()
@@ -24,12 +25,25 @@ impl SmellDetector for ConditionalLogicDetector {
                 f.has_conditional
             })
             .map(|f| {
-                TestSmell::new(
+                let smell = TestSmell::new(
                     SmellType::ConditionalTestLogic,
                     &test_file.path,
                     f.line,
                     Some(f.name.clone()),
-                )
+                );
+                if !is_xcuitest {
+                    return smell;
+                }
+                // E2E 向け文面。while ポーリングへの言及は while が実在するときだけ
+                if f.has_while_loop {
+                    smell.with_message(
+                        "E2E でも分岐はテスト自体のバグの温床です。特に while による自前ポーリングは waitForExistence(timeout:) に置き換えられないか検討しましょう。",
+                    )
+                } else {
+                    smell.with_message(
+                        "E2E でも分岐はテスト自体のバグの温床です。分岐で結果の変わるテストは、条件ごとに別のテストへ分けましょう。",
+                    )
+                }
             })
             .collect()
     }

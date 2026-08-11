@@ -199,11 +199,16 @@ fn analyze_function(
 
     let mut info = FunctionInfo::default();
     if let Some(s) = statements_node {
-        walk_statements(&s, source, &mut info, false);
+        walk_statements(&s, source, &mut info, WalkCtx::default());
     }
 
     // 条件付き early return（黙ってテストを終わらせる脱出）があるか
     let has_early_return = statements_node.map_or(false, |s| has_silent_skip(&s, source));
+
+    // 無条件スキップ（ボディ直下の throw XCTSkip）だけを「無視されたテスト」扱いにする。
+    // guard/if の中の XCTSkip は環境次第で実行される正当な条件付きスキップ
+    let has_unconditional_skip =
+        statements_node.map_or(false, |s| has_unconditional_skip(&s, source));
 
     // Date() 単体はフィクスチャの埋め草でしかないので、時刻演算と組み合わさったときだけ
     // 時間依存とみなす（明示的な待ち API は単体で時間依存）
@@ -214,12 +219,13 @@ fn analyze_function(
         name: name.to_string(),
         line,
         body_source,
-        is_ignored: ignored_by_attribute || info.has_skip,
+        is_ignored: ignored_by_attribute || has_unconditional_skip,
         has_assertion: info.assertion_count > 0,
-        has_sleep: info.has_sleep,
         has_conditional: info.has_if || info.has_switch || info.has_for || info.has_while,
         has_branching: info.has_if || info.has_switch,
         has_for_loop: info.has_for,
+        has_while_loop: info.has_while,
+        has_sleep: info.has_sleep,
         has_assertion_in_loop: info.has_assertion_in_loop,
         has_print: info.has_print,
         is_empty,
@@ -262,6 +268,56 @@ fn has_silent_skip(node: &Node, source: &[u8]) -> bool {
         }
     }
     false
+}
+
+/// 関数ボディ直下の文として書かれた無条件の `throw XCTSkip(...)` があるか。
+/// guard/if の中の XCTSkip は「環境次第で実行される正当な条件付きスキップ」なので
+/// 無視されたテスト扱いにしない。条件付きが前提の XCTSkipIf / XCTSkipUnless も対象外。
+fn has_unconditional_skip(statements: &Node, source: &[u8]) -> bool {
+    let mut cursor = statements.walk();
+    let found = statements.children(&mut cursor).any(|stmt| {
+        !matches!(
+            stmt.kind(),
+            "if_statement"
+                | "guard_statement"
+                | "switch_statement"
+                | "while_statement"
+                | "repeat_while_statement"
+                | "for_statement"
+                | "do_statement"
+        ) && contains_xctskip(&stmt, source)
+    });
+    found
+}
+
+/// ノード内に XCTSkip 呼び出しがあるか（分岐・閉包・ネスト関数の中は見ない）
+fn contains_xctskip(node: &Node, source: &[u8]) -> bool {
+    if node.kind() == "call_expression" {
+        if let Some(callee) = node.child(0) {
+            let text = node_text(&callee, source);
+            if text.rsplit('.').next().unwrap_or(&text).trim() == "XCTSkip" {
+                return true;
+            }
+        }
+    }
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .filter(|c| {
+            !matches!(
+                c.kind(),
+                "lambda_literal"
+                    | "function_declaration"
+                    | "if_statement"
+                    | "guard_statement"
+                    | "switch_statement"
+                    | "while_statement"
+                    | "repeat_while_statement"
+                    | "for_statement"
+            )
+        })
+        .any(|c| contains_xctskip(&c, source));
+    found
 }
 
 /// 分岐の中でテストの失敗を報告しているか（XCTFail / XCTAssert* / Issue.record / #expect）
@@ -323,7 +379,6 @@ struct FunctionInfo {
     assertions_without_message: usize,
     /// 真偽値だけのアサーションのうちメッセージなし
     assert_only_without_message: usize,
-    has_skip: bool,
     has_sleep: bool,
     has_print: bool,
     has_if: bool,
@@ -340,42 +395,106 @@ struct FunctionInfo {
     magic_numbers: Vec<(i64, usize)>,
 }
 
+/// 走査コンテキスト
+#[derive(Clone, Copy)]
+struct WalkCtx {
+    /// ループの中にいるか（has_assertion_in_loop 用）
+    in_loop: bool,
+    /// コールバック閉包の中にいるか。
+    /// completion handler の中の分岐はテスト本流の制御フローではないので、
+    /// 分岐・ループの構造フラグを立てない（アサーション・sleep 等は数え続ける）
+    in_callback: bool,
+    /// 次に現れる閉包をコールバックとして扱うか。
+    /// 直近の呼び出しが SYNC_CLOSURE_METHODS なら false（同期実行 = 本流扱い）
+    lambda_is_callback: bool,
+}
+
+impl Default for WalkCtx {
+    fn default() -> Self {
+        Self { in_loop: false, in_callback: false, lambda_is_callback: true }
+    }
+}
+
+/// 渡された閉包を「その場で同期実行する」と分かっているメソッド名。
+/// この閉包の中の分岐・ループはテスト本流の制御フローとして数える。
+/// リストにない呼び出しに渡された閉包（dataTask / DispatchQueue.async /
+/// completion handler 等）はコールバックとみなし、分岐カウントを止める。
+const SYNC_CLOSURE_METHODS: &[&str] = &[
+    // Sequence 操作
+    "forEach", "map", "compactMap", "flatMap", "filter", "reduce", "sorted", "contains",
+    "allSatisfy", "first", "firstIndex", "min", "max", "partition",
+    // テストの構造
+    "withKnownIssue", "confirmation", "measure", "runActivity",
+];
+
+/// 呼び出しが SYNC_CLOSURE_METHODS のものか
+fn is_sync_closure_call(call: &Node, source: &[u8]) -> bool {
+    let callee = match call.child(0) {
+        Some(c) => node_text(&c, source),
+        None => return false,
+    };
+    let method = callee.rsplit('.').next().unwrap_or(&callee).trim();
+    SYNC_CLOSURE_METHODS.contains(&method)
+}
+
 /// 文を再帰的に走査してパターンを収集する
-fn walk_statements(node: &Node, source: &[u8], info: &mut FunctionInfo, in_loop: bool) {
+fn walk_statements(node: &Node, source: &[u8], info: &mut FunctionInfo, ctx: WalkCtx) {
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         match child.kind() {
             "if_statement" => {
-                info.has_if = true;
-                walk_statements(&child, source, info, in_loop);
+                if !ctx.in_callback {
+                    info.has_if = true;
+                }
+                walk_statements(&child, source, info, ctx);
             }
             "switch_statement" => {
-                info.has_switch = true;
-                walk_statements(&child, source, info, in_loop);
+                if !ctx.in_callback {
+                    info.has_switch = true;
+                }
+                walk_statements(&child, source, info, ctx);
             }
             "for_statement" => {
-                info.has_for = true;
-                walk_statements(&child, source, info, true);
+                if !ctx.in_callback {
+                    info.has_for = true;
+                }
+                walk_statements(&child, source, info, WalkCtx { in_loop: ctx.in_loop || !ctx.in_callback, ..ctx });
             }
             "while_statement" | "repeat_while_statement" => {
-                info.has_while = true;
-                walk_statements(&child, source, info, true);
+                if !ctx.in_callback {
+                    info.has_while = true;
+                }
+                walk_statements(&child, source, info, WalkCtx { in_loop: ctx.in_loop || !ctx.in_callback, ..ctx });
             }
             // guard は Swift では分岐というより前提条件の表明なので条件分岐には数えない。
             // 黙って return するものは Silent Skip 側で拾う。
             "guard_statement" => {
-                walk_statements(&child, source, info, in_loop);
+                walk_statements(&child, source, info, ctx);
             }
             "macro_invocation" => {
-                check_macro(&child, source, info, in_loop);
-                walk_statements(&child, source, info, in_loop);
+                check_macro(&child, source, info, ctx.in_loop);
+                walk_statements(&child, source, info, ctx);
             }
             "call_expression" => {
-                check_call(&child, source, info, in_loop);
-                walk_statements(&child, source, info, in_loop);
+                check_call(&child, source, info, ctx.in_loop);
+                let transparent = is_sync_closure_call(&child, source);
+                walk_statements(&child, source, info, WalkCtx { lambda_is_callback: !transparent, ..ctx });
+            }
+            "lambda_literal" => {
+                walk_statements(
+                    &child,
+                    source,
+                    info,
+                    WalkCtx {
+                        in_loop: ctx.in_loop,
+                        in_callback: ctx.in_callback || ctx.lambda_is_callback,
+                        // 閉包の中で直に現れる閉包（変数代入等）は実行時機が不明なのでコールバック扱い
+                        lambda_is_callback: true,
+                    },
+                );
             }
             _ => {
-                walk_statements(&child, source, info, in_loop);
+                walk_statements(&child, source, info, ctx);
             }
         }
     }
@@ -452,12 +571,6 @@ fn check_call(call: &Node, source: &[u8], info: &mut FunctionInfo, in_loop: bool
             if in_loop {
                 info.has_assertion_in_loop = true;
             }
-            return;
-        }
-
-        // --- スキップ ---
-        "XCTSkip" | "XCTSkipIf" | "XCTSkipUnless" => {
-            info.has_skip = true;
             return;
         }
 
@@ -973,11 +1086,104 @@ import Testing
         let fns = parse(source);
         assert!(fns[0].has_early_return);
         assert!(!fns[1].has_early_return);
-        // throw XCTSkip は正しいスキップ（IgnoredTest 側で拾う）
+        // throw XCTSkip は正しいスキップ。条件付き（guard の中）なので
+        // Silent Skip でも Ignored Test でもない
         assert!(!fns[2].has_early_return);
-        assert!(fns[2].is_ignored);
+        assert!(!fns[2].is_ignored);
         // クロージャ内の return は脱出ではない
         assert!(!fns[3].has_early_return);
+    }
+
+    #[test]
+    fn test_conditional_skip_is_not_ignored() {
+        let source = r#"
+import XCTest
+
+final class T: XCTestCase {
+    // 無条件の throw XCTSkip = 常にスキップされる（無視されたテスト）
+    func testAlwaysSkipped() throws {
+        throw XCTSkip("not ready")
+        XCTAssertTrue(true)
+    }
+
+    // guard の中の XCTSkip = 環境次第で実行される正当な条件付きスキップ
+    func testConditionallySkipped() throws {
+        guard let id = makeFixture() else {
+            throw XCTSkip("深夜帯はスキップ")
+        }
+        XCTAssertEqual(id, "expected", "フィクスチャの ID が一致するべき")
+    }
+
+    // XCTSkipIf は条件付きが前提の API なので無視扱いにしない
+    func testSkipIf() throws {
+        try XCTSkipIf(isCI, "CI ではスキップ")
+        XCTAssertTrue(flag, "flag が立つべき")
+    }
+}
+"#;
+        let fns = parse(source);
+        assert_eq!(fns.len(), 3);
+        assert!(fns[0].is_ignored);
+        assert!(!fns[1].is_ignored);
+        assert!(!fns[2].is_ignored);
+    }
+
+    #[test]
+    fn test_branching_in_callback_closure_is_not_counted() {
+        // completion handler の中のレスポンスパース分岐はテスト本流の分岐ではない (#16)
+        let source = r#"
+import XCTest
+
+final class T: XCTestCase {
+    func testCallbackParsing() {
+        var completedFound = false
+        let expectation = expectation(description: "verify")
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            if let data,
+               let array = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                completedFound = array.isEmpty == false
+            }
+            expectation.fulfill()
+        }.resume()
+        wait(for: [expectation], timeout: 15)
+        XCTAssertTrue(completedFound, "完了が反映されるべき")
+    }
+}
+"#;
+        let fns = parse(source);
+        assert!(!fns[0].has_branching);
+        assert!(!fns[0].has_conditional);
+        // コールバックの中でもアサーションは数える
+        assert!(fns[0].has_assertion);
+    }
+
+    #[test]
+    fn test_branching_in_sync_closure_is_counted() {
+        let source = r#"
+import Testing
+
+@Test func forEachWithIf() {
+    items.forEach { item in
+        if !item.isEmpty {
+            #expect(item.isValid)
+        }
+    }
+}
+
+@Test func nestedCallbackWins() {
+    URLSession.shared.dataTask(with: request) { data, _, _ in
+        items.forEach { item in
+            if item.isEmpty { count += 1 }
+        }
+    }.resume()
+    #expect(count == 0)
+}
+"#;
+        let fns = parse(source);
+        // forEach はその場で同期実行される = 本流の分岐として数える
+        assert!(fns[0].has_branching);
+        // コールバックの中の forEach は外側のコールバック扱いが勝つ
+        assert!(!fns[1].has_branching);
     }
 
     #[test]
@@ -1031,9 +1237,11 @@ import Testing
 "#;
         let fns = parse(source);
         assert!(fns[0].has_branching);
+        assert!(!fns[0].has_while_loop);
         assert!(fns[1].has_for_loop);
         assert!(fns[1].has_assertion_in_loop);
         assert!(fns[2].has_conditional);
+        assert!(fns[2].has_while_loop);
         assert!(fns[3].has_branching);
         // guard は条件分岐に数えない
         assert!(!fns[4].has_conditional);

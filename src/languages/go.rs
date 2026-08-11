@@ -109,16 +109,29 @@ fn analyze_function(name: &str, line: usize, body: &Node, source: &[u8]) -> Test
         false
     };
 
+    // 無条件スキップ: ボディ直下の文としての t.Skip(...) 等。
+    // if testing.Short() { t.Skip() } のような条件付きスキップは
+    // 「環境次第で実行されるテスト」なので無視扱いにしない
+    let has_unconditional_skip = if let Some(ref sl) = stmts {
+        let mut c = sl.walk();
+        let result = sl.children(&mut c).any(|n: Node| is_unconditional_skip_stmt(&n, source));
+        result
+    } else {
+        false
+    };
+
     TestFunction {
         name: name.to_string(),
         line,
         body_source,
-        is_ignored: info.has_skip,
+        is_ignored: has_unconditional_skip,
         has_assertion: info.assertion_count > 0,
         has_sleep: info.has_sleep,
         has_conditional: info.has_if || info.has_switch || info.has_select || info.has_for,
         has_branching: info.has_if || info.has_switch || info.has_select,
         has_for_loop: info.has_for,
+        // Go の while 相当（for cond {}）は構文上 for と区別できないため has_for に含まれる
+        has_while_loop: false,
         has_assertion_in_loop: info.has_assertion_in_loop,
         has_print: info.has_print,
         is_empty,
@@ -138,7 +151,6 @@ fn analyze_function(name: &str, line: usize, body: &Node, source: &[u8]) -> Test
 struct FunctionInfo {
     assertion_count: usize,
     assertions_without_message: usize,
-    has_skip: bool,
     has_sleep: bool,
     has_print: bool,
     has_if: bool,
@@ -279,10 +291,7 @@ fn check_selector_call(obj: &str, method: &str, call: &Node, source: &[u8], info
                 info.assertions_without_message += 1;
                 if in_loop { info.has_assertion_in_loop = true; }
             }
-            // スキップ
-            "Skip" | "SkipNow" | "Skipf" => {
-                info.has_skip = true;
-            }
+            // t.Skip 系は is_unconditional_skip_stmt（ボディ直下の無条件スキップ）のみ拾う
             // t.Log / t.Logf は -v フラグ時のみ表示されるテストログ機能であり
             // fmt.Println（常に表示）とは異なるため has_print に含めない
             _ => {}
@@ -382,6 +391,19 @@ fn collect_int_literals(node: &Node, source: &[u8], out: &mut Vec<(i64, usize)>)
             collect_int_literals(&child, source, out);
         }
     }
+}
+
+/// ボディ直下の文としての無条件スキップ（t.Skip / t.SkipNow / t.Skipf 等）か
+fn is_unconditional_skip_stmt(stmt: &Node, source: &[u8]) -> bool {
+    if stmt.kind() != "expression_statement" {
+        return false;
+    }
+    let text = node_text(stmt, source);
+    ["t.", "b.", "f."].iter().any(|prefix| {
+        text.strip_prefix(prefix).map_or(false, |rest| {
+            rest.starts_with("Skip(") || rest.starts_with("SkipNow(") || rest.starts_with("Skipf(")
+        })
+    })
 }
 
 /// statement_list ノードを block 内から取得
@@ -636,6 +658,28 @@ func TestSkipped(t *testing.T) {
         let fns = parse_test_functions(source);
         assert_eq!(fns.len(), 1);
         assert!(fns[0].is_ignored);
+    }
+
+    #[test]
+    fn test_conditional_skip_is_not_ignored() {
+        // if の中の t.Skip は「環境次第で実行されるテスト」なので無視扱いにしない
+        let source = r#"
+package foo_test
+
+import "testing"
+
+func TestConditionalSkip(t *testing.T) {
+    if testing.Short() {
+        t.Skip("short モードではスキップ")
+    }
+    if got := compute(); got != 42 {
+        t.Errorf("got %d, want 42", got)
+    }
+}
+"#;
+        let fns = parse_test_functions(source);
+        assert_eq!(fns.len(), 1);
+        assert!(!fns[0].is_ignored);
     }
 
     #[test]

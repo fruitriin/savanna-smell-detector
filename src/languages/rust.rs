@@ -94,6 +94,7 @@ impl<'a> RustTestVisitor<'a> {
             has_conditional: analyzer.has_conditional,
             has_branching: analyzer.has_branching,
             has_for_loop: analyzer.has_for_loop,
+            has_while_loop: analyzer.has_while_loop,
             has_assertion_in_loop: analyzer.has_assertion_in_loop,
             has_print: analyzer.has_print,
             is_empty,
@@ -165,6 +166,8 @@ struct BodyAnalyzer {
     has_branching: bool,
     /// for ループがあるか
     has_for_loop: bool,
+    /// while / loop があるか（自前ポーリングの兆候）
+    has_while_loop: bool,
     /// for ループ内にアサーションがあるか（テーブル駆動テストの兆候）
     has_assertion_in_loop: bool,
     /// 現在ループの中にいるか（再帰的追跡用）
@@ -240,6 +243,7 @@ impl BodyAnalyzer {
             }
             Expr::While(expr_while) => {
                 self.has_conditional = true;
+                self.has_while_loop = true;
                 let prev_in_loop = self.in_loop;
                 self.in_loop = true;
                 for stmt in &expr_while.body.stmts {
@@ -249,6 +253,7 @@ impl BodyAnalyzer {
             }
             Expr::Loop(expr_loop) => {
                 self.has_conditional = true;
+                self.has_while_loop = true;
                 let prev_in_loop = self.in_loop;
                 self.in_loop = true;
                 for stmt in &expr_loop.body.stmts {

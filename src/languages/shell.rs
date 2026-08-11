@@ -263,6 +263,7 @@ fn analyze_shell_function(name: &str, line: usize, body: &str, _raw_lines: &[&st
         has_conditional,
         has_branching,
         has_for_loop: has_for,
+        has_while_loop: has_while,
         has_assertion_in_loop,
         has_print,
         is_empty,

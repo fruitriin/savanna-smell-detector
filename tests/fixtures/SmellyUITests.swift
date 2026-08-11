@@ -30,12 +30,27 @@ final class SmellyUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["title"].exists)
     }
 
-    // Ignored Test — 正しいスキップ（Silent Skip ではない）
+    // スメルなし — 条件付きの明示スキップは正しい作法（Silent Skip でも Ignored Test でもない）
     func testSkipsProperly() throws {
         guard let id = makeFixture() else {
             throw XCTSkip("深夜帯はフィクスチャを作れない")
         }
         XCTAssertFalse(id.isEmpty, "フィクスチャ ID は空でないこと")
+    }
+
+    // スメルなし — completion handler 内のレスポンスパース分岐はテスト本流の分岐ではない
+    // （最後の XCTAssertTrue が必ず判定するので黙って通ることはない）
+    func testCallbackParsingIsNotConditionalLogic() {
+        var found = false
+        let expectation = expectation(description: "verify")
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            if let data, data.isEmpty == false {
+                found = true
+            }
+            expectation.fulfill()
+        }.resume()
+        wait(for: [expectation], timeout: 15)
+        XCTAssertTrue(found, "レスポンスが取得できること")
     }
 
     // 失敗を報告してから return するのは Silent Skip ではない
