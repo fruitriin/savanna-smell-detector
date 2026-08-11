@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-08-11
+
+### Fixed
+
+- **Conditional Test Logic（Swift）— コールバック閉包内の分岐を誤検出しない** (#16) — `URLSession.shared.dataTask { ... }` などの completion handler に書かれたレスポンスパースの `if` が、テスト本流の条件分岐として検出されていた。閉包を渡した呼び出し名で判別し、`forEach` / `map` 等「その場で同期実行される」と分かっているものだけ本流として数える。リストにない呼び出し（completion handler / `DispatchQueue.async` 等）に渡された閉包の中は分岐・ループを数えない（アサーション・sleep・print の検出は継続）
+- **Ignored Test — 条件付きスキップを「無視されたテスト」にしない（Swift / Python / Go）** (#16) — `guard ... else { throw XCTSkip(...) }`（Swift）、`if ...: pytest.skip(...)`（Python）、`if testing.Short() { t.Skip() }`（Go）は環境次第で実行される正当な明示スキップ。関数ボディ直下に無条件で書かれたスキップだけを Ignored Test として扱う。条件付きが前提の `XCTSkipIf` / `XCTSkipUnless` も対象外に
+
+### Changed
+
+- **Conditional Test Logic（xcuitest）— 検出根拠に応じたメッセージ出し分け** (#16) — while が存在しないテストにも「特に while による自前ポーリングは…」という文言が一律で付いていた。while ポーリングへの言及は while が実在する検出だけに出し、if/switch のみの検出には条件ごとのテスト分割を促す文面を出す。`TestFunction` に `has_while_loop` フィールドを追加
+
 ## [0.5.0] - 2026-07-31
 
 ### Added
